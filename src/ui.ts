@@ -92,6 +92,11 @@ export class Dashboard {
       fullUnicode: true,
     });
 
+    // Suppress blessed's terminfo parsing errors (e.g. Setulc on modern terminals)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tput = (this.screen.program as any).tput;
+    if (tput) tput.errors = [];
+
     // Header
     this.headerBox = blessed.box({
       parent: this.screen,
@@ -190,10 +195,8 @@ export class Dashboard {
         border: { fg: "cyan" },
         label: { fg: "cyan" },
       },
-      inputOnFocus: true,
     });
 
-    prompt.focus();
     prompt.readInput((err, value) => {
       prompt.destroy();
       this.render();
@@ -253,7 +256,7 @@ export class Dashboard {
     const cols = devices.length <= 2 ? devices.length : Math.min(3, devices.length);
     const rows = Math.ceil(devices.length / cols);
     const boxWidth = Math.floor(availableWidth / cols);
-    const boxHeight = Math.max(14, Math.floor(availableHeight / rows));
+    const boxHeight = Math.floor(availableHeight / rows);
 
     devices.forEach((device, i) => {
       const col = i % cols;
