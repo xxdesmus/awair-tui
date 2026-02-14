@@ -21,7 +21,7 @@ A Go terminal application that monitors Awair air sensors in real-time via their
 
 - **`main.go`** — Entry point. CLI flag parsing (`flag` stdlib), program setup, mDNS discovery goroutine launch.
 - **`api.go`** — HTTP client for Awair Local API (`/air-data/latest`, `/settings/config/data`). Sensor data types, optimal range constants (temps in °F for rating), `CToF()` conversion, `RateSensorValue()` scoring logic.
-- **`discovery.go`** — mDNS auto-discovery via `grandcat/zeroconf`. Browses `_http._tcp` services matching `awair*` prefix, filters for IPv4 addresses, returns a channel.
+- **`discovery.go`** — mDNS auto-discovery via `hashicorp/mdns`. Queries `_http._tcp` services matching `awair*` prefix, filters for IPv4 addresses, returns a channel. Re-queries every 30s.
 - **`config.go`** — Reads/writes `~/.awair-tui.json` for persistent device name mappings (IP → friendly name).
 - **`ui.go`** — Bubbletea `Model`/`Update`/`View` implementation. Responsive device grid, sensor bars with color-coded ratings, log panel, status bar, text input prompts via `bubbles/textinput`.
 

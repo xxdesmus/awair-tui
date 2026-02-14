@@ -48,5 +48,5 @@ func SaveConfig(cfg *Config) {
 		return
 	}
 	data = append(data, '\n')
-	_ = os.WriteFile(configPath(), data, 0644)
+	_ = os.WriteFile(configPath(), data, 0600)
 }

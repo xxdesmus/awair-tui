@@ -25,7 +25,7 @@ A terminal UI for monitoring Awair air quality sensors in real time via the [Loc
 
 ## Prerequisites
 
-- [Go 1.21+](https://go.dev/dl/) (to build from source)
+- [Go 1.24+](https://go.dev/dl/) (to build from source)
 - Awair Element (or 2nd Edition) with Local API enabled via the Awair Home app
 
 ## Install

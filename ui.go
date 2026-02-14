@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -83,14 +85,14 @@ type model struct {
 	height      int
 	fahrenheit  bool
 
-	showPrompt bool
-	promptStep string          // "ip" or "name"
+	showPrompt  bool
+	promptStep  string // "ip" or "name"
 	promptInput textinput.Model
-	pendingIP  string
+	pendingIP   string
 
-	pollInterval    time.Duration
-	noDiscovery     bool
-	discoveryCtx    func() // cancel function for discovery
+	pollInterval time.Duration
+	noDiscovery  bool
+	discoveryCtx func() // cancel function for discovery
 }
 
 func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenheit bool) model {
@@ -174,7 +176,7 @@ func (m model) Init() tea.Cmd {
 	// Start the first tick and poll all existing devices immediately
 	cmds := []tea.Cmd{tickCmd(m.pollInterval)}
 	for _, ip := range m.deviceOrder {
-		ip := ip
+
 		cmds = append(cmds, pollCmd(ip), configCmd(ip))
 	}
 	return tea.Batch(cmds...)
@@ -192,6 +194,25 @@ func pollCmd(ip string) tea.Cmd {
 		return pollResultMsg{IP: ip, Data: data, Err: err}
 	}
 }
+
+// discoverCmd runs a one-shot mDNS discovery and sends results as messages.
+func discoverCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		ch := StartDiscovery(ctx)
+		// Collect all discovered devices from this query
+		var found []DiscoveredDevice
+		for dev := range ch {
+			found = append(found, dev)
+		}
+		return discoveryBatchMsg(found)
+	}
+}
+
+// discoveryBatchMsg carries all devices found in a single discovery pass.
+type discoveryBatchMsg []DiscoveredDevice
 
 func configCmd(ip string) tea.Cmd {
 	return func() tea.Msg {
@@ -218,7 +239,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Poll all devices
 		var cmds []tea.Cmd
 		for _, ip := range m.deviceOrder {
-			ip := ip
+	
 			cmds = append(cmds, pollCmd(ip))
 		}
 		cmds = append(cmds, tickCmd(m.pollInterval))
@@ -256,6 +277,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(pollCmd(msg.IP), configCmd(msg.IP))
 		}
 		return m, nil
+
+	case discoveryBatchMsg:
+		var cmds []tea.Cmd
+		for _, d := range msg {
+			if _, exists := m.devices[d.IP]; !exists {
+				dev := m.addDevice(d.IP, d.Name)
+				m.addLog(fmt.Sprintf("Discovered: %s at %s", dev.Name, d.IP))
+				cmds = append(cmds, pollCmd(d.IP), configCmd(d.IP))
+			}
+		}
+		if len(cmds) == 0 {
+			m.addLog("No new devices found")
+		}
+		return m, tea.Batch(cmds...)
 	}
 
 	return m, nil
@@ -277,7 +312,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.addLog("Refreshing...")
 		var cmds []tea.Cmd
 		for _, ip := range m.deviceOrder {
-			ip := ip
+	
 			cmds = append(cmds, pollCmd(ip))
 		}
 		return m, tea.Batch(cmds...)
@@ -291,9 +326,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 
 	case "d":
+		if m.noDiscovery {
+			m.addLog("Discovery disabled (--no-discovery)")
+			return m, nil
+		}
 		m.addLog("Restarting mDNS discovery...")
-		// Discovery restart is handled by main.go via the program
-		return m, nil
+		return m, discoverCmd()
 	}
 
 	return m, nil
@@ -316,7 +354,6 @@ func (m model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.promptInput.Blur()
 				return m, nil
 			}
-			// Basic IP validation
 			if !isValidIP(value) {
 				m.addLog(fmt.Sprintf("Invalid IP: %s", value))
 				m.showPrompt = false
@@ -354,16 +391,7 @@ func (m model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func isValidIP(s string) bool {
-	// Accept IPv4-like (digits and dots) or IPv6-like (contains colon)
-	if strings.Contains(s, ":") {
-		return true
-	}
-	for _, c := range s {
-		if c != '.' && (c < '0' || c > '9') {
-			return false
-		}
-	}
-	return strings.Contains(s, ".")
+	return net.ParseIP(s) != nil
 }
 
 func (m model) View() string {
@@ -410,7 +438,6 @@ func (m model) renderHeader() string {
 
 	return lipgloss.NewStyle().
 		Width(m.width).
-		Padding(0, 0).
 		Render(line + "\n")
 }
 
@@ -430,7 +457,6 @@ func (m model) renderLogPanel() string {
 		BorderForeground(colorGray).
 		Padding(0, 1)
 
-	// Show last 4 log entries
 	start := len(m.logs) - 4
 	if start < 0 {
 		start = 0
@@ -460,16 +486,27 @@ func (m model) renderEmptyState(height int) string {
 		Render(msg)
 }
 
+// gridCols picks column count for the device grid.
+func gridCols(n int) int {
+	if n <= 2 {
+		return n
+	}
+	if n == 4 {
+		return 2 // 2x2 is better than 3+1
+	}
+	if n <= 6 {
+		return 3
+	}
+	return 3
+}
+
 func (m model) renderDeviceGrid(height int) string {
 	devs := m.orderedDevices()
 	if len(devs) == 0 {
 		return m.renderEmptyState(height)
 	}
 
-	cols := len(devs)
-	if cols > 3 {
-		cols = 3
-	}
+	cols := gridCols(len(devs))
 	rows := (len(devs) + cols - 1) / cols
 	boxWidth := m.width / cols
 	boxHeight := height / rows
@@ -480,49 +517,37 @@ func (m model) renderDeviceGrid(height int) string {
 		var colStrings []string
 		for col := 0; col < cols; col++ {
 			idx := row*cols + col
-			if idx >= len(devs) {
-				// Empty cell
-				colStrings = append(colStrings, lipgloss.NewStyle().Width(boxWidth).Height(boxHeight).Render(""))
-				continue
-			}
 
-			dev := devs[idx]
 			w := boxWidth
 			// Last column gets remaining width
 			if col == cols-1 {
 				w = m.width - (cols-1)*boxWidth
 			}
 
-			content := m.renderDeviceContent(dev, w-4) // -4 for border padding
-			label := fmt.Sprintf(" %s (%s) ", dev.Name, dev.IP)
+			if idx >= len(devs) {
+				// Empty cell
+				colStrings = append(colStrings, lipgloss.NewStyle().Width(w).Height(boxHeight).Render(""))
+				continue
+			}
+
+			dev := devs[idx]
+
+			// Inner content width = box width - 2 (border) - 2 (padding)
+			innerWidth := w - 4
+			if innerWidth < 10 {
+				innerWidth = 10
+			}
+
+			content := m.renderDeviceContent(dev, innerWidth)
 
 			box := lipgloss.NewStyle().
 				Width(w - 2).
+				MaxWidth(w).
 				Height(boxHeight - 2).
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(colorCyan).
+				Padding(0, 1).
 				Render(content)
-
-			// Add label to top border
-			if len(label) > w-4 {
-				label = label[:w-4]
-			}
-			labelStyle := lipgloss.NewStyle().
-				Foreground(colorCyan).
-				Bold(true).
-				Render(label)
-
-			// Replace first line's beginning with the label
-			boxLines := strings.Split(box, "\n")
-			if len(boxLines) > 0 {
-				// Overlay label on border
-				first := boxLines[0]
-				labelRendered := labelStyle
-				if len(first) > 2 && len(labelRendered) < len(first) {
-					boxLines[0] = first[:1] + labelRendered + first[min(1+len([]rune(label)), len(first)):]
-				}
-			}
-			box = strings.Join(boxLines, "\n")
 
 			colStrings = append(colStrings, box)
 		}
@@ -533,13 +558,20 @@ func (m model) renderDeviceGrid(height int) string {
 }
 
 func (m model) renderDeviceContent(dev *Device, width int) string {
+	// Device name header
+	nameLabel := fmt.Sprintf("%s (%s)", dev.Name, dev.IP)
+	if lipgloss.Width(nameLabel) > width {
+		nameLabel = nameLabel[:width]
+	}
+	header := lipgloss.NewStyle().Bold(true).Foreground(colorCyan).Render(nameLabel)
+
 	if dev.LastError != nil && dev.Data == nil {
 		errStyle := lipgloss.NewStyle().Foreground(colorPoor)
-		return "\n" + errStyle.Render("  Error: "+dev.LastError.Error()) + "\n\n  Retrying..."
+		return header + "\n\n" + errStyle.Render("Error: "+dev.LastError.Error()) + "\n\nRetrying..."
 	}
 
 	if dev.Data == nil {
-		return "\n" + lipgloss.NewStyle().Foreground(colorFair).Render("  Connecting...")
+		return header + "\n\n" + lipgloss.NewStyle().Foreground(colorFair).Render("Connecting...")
 	}
 
 	d := dev.Data
@@ -549,25 +581,26 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 	}
 
 	var lines []string
+	lines = append(lines, header)
 
 	// Awair Score
 	sc := scoreColor(d.Score)
 	sl := scoreLabel(d.Score)
 	scoreStyle := lipgloss.NewStyle().Bold(true).Foreground(sc)
 	lines = append(lines,
-		fmt.Sprintf("  %s    %s",
+		fmt.Sprintf("%s    %s",
 			lipgloss.NewStyle().Bold(true).Render("Awair Score"),
 			scoreStyle.Render(fmt.Sprintf("%d %s", d.Score, sl))))
 
 	if barWidth > 0 {
-		lines = append(lines, "  "+renderGauge(d.Score, barWidth+16, sc))
+		lines = append(lines, renderGauge(d.Score, barWidth, sc))
 	}
 	lines = append(lines, "")
 
 	// Sensor readings
 	type sensorEntry struct {
 		Key   string
-		Value float64 // raw value from API (Celsius for temps)
+		Value float64
 	}
 
 	sensors := []sensorEntry{
@@ -592,25 +625,24 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 
 	for _, s := range sensors {
 		r := OptimalRanges[s.Key]
-		// For rating, always use °F for temp sensors
 		ratingVal := DisplayValue(s.Key, s.Value)
 		rating := RateSensorValue(s.Key, ratingVal)
 		color := ratingColor(rating)
 		valStr := FormatValue(s.Key, s.Value, m.fahrenheit)
-		label := padRight(r.Label, 14)
-		valPad := padLeft(valStr, 12)
+		label := visPadRight(r.Label, 14)
+		valPad := visPadLeft(valStr, 12)
 
 		valStyle := lipgloss.NewStyle().Foreground(color)
 		labelStyle := lipgloss.NewStyle().Bold(true)
 
 		if barWidth > 0 {
 			bar := renderSensorBar(s.Key, ratingVal, barWidth, color)
-			lines = append(lines, fmt.Sprintf("  %s %s  %s",
+			lines = append(lines, fmt.Sprintf("%s %s  %s",
 				labelStyle.Render(label),
 				valStyle.Render(valPad),
 				bar))
 		} else {
-			lines = append(lines, fmt.Sprintf("  %s %s",
+			lines = append(lines, fmt.Sprintf("%s %s",
 				labelStyle.Render(label),
 				valStyle.Render(valPad)))
 		}
@@ -620,7 +652,7 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 	if !dev.LastUpdate.IsZero() {
 		lines = append(lines, "")
 		ts := lipgloss.NewStyle().Foreground(colorGray).
-			Render("  Updated: " + dev.LastUpdate.Format("15:04:05"))
+			Render("Updated: " + dev.LastUpdate.Format("15:04:05"))
 		lines = append(lines, ts)
 	}
 
@@ -631,13 +663,7 @@ func renderGauge(score int, width int, color lipgloss.Color) string {
 	if width <= 0 {
 		return ""
 	}
-	ratio := float64(score) / 100.0
-	if ratio > 1 {
-		ratio = 1
-	}
-	if ratio < 0 {
-		ratio = 0
-	}
+	ratio := clamp01(float64(score) / 100.0)
 	filled := int(ratio * float64(width))
 	if filled > width {
 		filled = width
@@ -712,22 +738,25 @@ func (m model) overlayPrompt(grid string, gridHeight int) string {
 		Padding(0, 1).
 		Render(title + "\n" + m.promptInput.View())
 
-	// Center over grid
 	return lipgloss.Place(m.width, gridHeight,
 		lipgloss.Center, lipgloss.Center,
 		promptBox)
 }
 
-func padRight(s string, n int) string {
-	if len(s) >= n {
+// visPadRight pads s with spaces to visual width n using lipgloss.Width.
+func visPadRight(s string, n int) string {
+	w := lipgloss.Width(s)
+	if w >= n {
 		return s
 	}
-	return s + strings.Repeat(" ", n-len(s))
+	return s + strings.Repeat(" ", n-w)
 }
 
-func padLeft(s string, n int) string {
-	if len(s) >= n {
+// visPadLeft pads s with leading spaces to visual width n using lipgloss.Width.
+func visPadLeft(s string, n int) string {
+	w := lipgloss.Width(s)
+	if w >= n {
 		return s
 	}
-	return strings.Repeat(" ", n-len(s)) + s
+	return strings.Repeat(" ", n-w) + s
 }

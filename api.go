@@ -3,11 +3,14 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"strings"
 	"time"
 )
+
+const maxResponseSize = 1 << 20 // 1 MB
 
 // SensorData represents the JSON response from /air-data/latest.
 type SensorData struct {
@@ -96,7 +99,7 @@ func FetchAirData(ip string) (*SensorData, error) {
 	}
 
 	var data SensorData
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseSize)).Decode(&data); err != nil {
 		return nil, err
 	}
 	return &data, nil
@@ -116,7 +119,7 @@ func FetchDeviceConfig(ip string) (*DeviceConfig, error) {
 	}
 
 	var cfg DeviceConfig
-	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseSize)).Decode(&cfg); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
@@ -185,12 +188,7 @@ func FormatValue(key string, value float64, fahrenheit bool) string {
 	r := OptimalRanges[key]
 
 	switch key {
-	case "temp":
-		if fahrenheit {
-			return fmt.Sprintf("%.1f°F", CToF(value))
-		}
-		return fmt.Sprintf("%.1f°C", value)
-	case "dew_point":
+	case "temp", "dew_point":
 		if fahrenheit {
 			return fmt.Sprintf("%.1f°F", CToF(value))
 		}

@@ -1,5 +1,6 @@
 # Build output
 awair-tui
+dist/
 
 # Logs
 *.log
@@ -13,3 +14,6 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Claude Code
+.claude/
