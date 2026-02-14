@@ -1,8 +1,5 @@
-# Dependencies
-node_modules/
-
 # Build output
-dist/
+awair-tui
 
 # Logs
 *.log

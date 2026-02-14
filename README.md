@@ -5,53 +5,63 @@ A terminal UI for monitoring Awair air quality sensors in real time via the [Loc
 ```
  ☁  Awair TUI   Real-time air quality monitoring
 
-┌─ AWAIR-ELEM-1A2B3C (192.168.1.100) ──────────────--───┐
+┌─ AWAIR-ELEM-1A2B3C (192.168.1.100) ─────────────────┐
 │  Awair Score    86 Good                               │
 │  ██████████████████████████████░░░░░░░░               │
 │                                                       │
-│  Temperature     74.5°F  ██████████████░░░░░░░░░░     │
-│  Humidity        55.5%   █████████████████░░░░░░░     │
+│  Temperature    23.6°C  ██████████████░░░░░░░░░░      │
+│  Humidity       55.5%   █████████████████░░░░░░░      │
 │  CO₂           965 ppm  █████████████████████░░░      │
 │  VOC           276 ppb  ████████░░░░░░░░░░░░░░░░      │
-│  PM2.5        2 µg/m³   █░░░░░░░░░░░░░░░░░░░░░░       │
-│  Dew Point     51.1°F   ██████████░░░░░░░░░░░░░░      │
-│  Abs Humidity  9.4g/m³   ████████████░░░░░░░░░░░      │
+│  PM2.5        2 µg/m³   █░░░░░░░░░░░░░░░░░░░░░░      │
+│  Dew Point     10.6°C   ██████████░░░░░░░░░░░░░░      │
+│  Abs Humidity  9.4 g/m³  ████████████░░░░░░░░░░░      │
 │  CO₂ (est)    595 ppm   ████████████████████░░░░      │
-│  PM10 (est)  2 µg/m³    █░░░░░░░░░░░░░░░░░░░░░░       │
+│  PM10 (est)  2 µg/m³    █░░░░░░░░░░░░░░░░░░░░░░      │
 │                                                       │
-│  Updated: 10:30:15 AM                                 │
+│  Updated: 10:30:15                                    │
 └───────────────────────────────────────────────────────┘
 ```
 
 ## Prerequisites
 
-- Node.js 18+
+- [Go 1.21+](https://go.dev/dl/) (to build from source)
 - Awair Element (or 2nd Edition) with Local API enabled via the Awair Home app
 
 ## Install
 
 ```sh
-npm install
-npm run build
+go install github.com/xxdesmus/awair-tui@latest
+```
+
+Or build from source:
+
+```sh
+git clone https://github.com/xxdesmus/awair-tui.git
+cd awair-tui
+go build -o awair-tui .
 ```
 
 ## Usage
 
 ```sh
 # Auto-discover Awair devices on your LAN via mDNS
-node dist/index.js
+./awair-tui
 
 # Connect to a specific device IP
-node dist/index.js 192.168.1.100
+./awair-tui 192.168.1.100
 
 # Multiple devices
-node dist/index.js 192.168.1.100 192.168.1.101
+./awair-tui 192.168.1.100 192.168.1.101
 
 # Custom polling interval (default: 10 seconds)
-node dist/index.js --interval 5
+./awair-tui --interval 5
+
+# Display temperatures in Fahrenheit (default: Celsius)
+./awair-tui --fahrenheit
 
 # Skip mDNS discovery, only use specified IPs
-node dist/index.js --no-discovery 192.168.1.100
+./awair-tui --no-discovery 192.168.1.100
 ```
 
 ## Keyboard Shortcuts
@@ -78,6 +88,10 @@ node dist/index.js --no-discovery 192.168.1.100
 | PM10 (est) | µg/m³ | < 50 |
 
 Values are color-coded: **green** (good), **yellow** (fair), **red** (poor).
+
+## Config
+
+Device names are persisted in `~/.awair-tui.json`. When you add a device via the `a` key and provide a friendly name, it's saved automatically and used on subsequent launches.
 
 ## How It Works
 

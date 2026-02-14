@@ -5,33 +5,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Run
 
 ```bash
-npm run dev          # Build TypeScript and run the app
-npm run build        # Build only (tsc → dist/)
-npm start            # Run pre-built dist/index.js
+go build -o awair-tui .    # Build binary
+go run .                    # Build and run
+./awair-tui                 # Run pre-built binary
+./awair-tui --help          # Show usage
 ```
 
 No test suite is configured.
 
 ## Architecture
 
-A Node.js terminal application that monitors Awair air sensors in real-time via their Local API. Uses ES modules with strict TypeScript (ES2022 target, Node16 module resolution).
+A Go terminal application that monitors Awair air sensors in real-time via their Local API. Single binary, flat package structure (all `package main`). Uses the Charm ecosystem (Bubbletea + Lipgloss + Bubbles) for the TUI.
 
 ### Module Overview
 
-- **`src/index.ts`** — Entry point. CLI argument parsing, device management (`Map<ip, AwairDevice>`), polling loop (`Promise.allSettled` every N seconds), and keyboard shortcut wiring.
-- **`src/api.ts`** — HTTP client for Awair Local API (`/air-data/latest`, `/settings/config/data`). Also contains sensor data types, optimal range constants (temps in °F), `cToF()` conversion, and `rateSensorValue()` scoring logic.
-- **`src/discovery.ts`** — mDNS auto-discovery via `bonjour-service`. Browses `_http._tcp` services matching `awair-*` prefix, filters for IPv4 addresses.
-- **`src/ui.ts`** — `Dashboard` class built on `blessed`. Manages screen layout (header, responsive device grid, log panel, status bar), sensor bar rendering with color-coded ratings, and text input prompts.
+- **`main.go`** — Entry point. CLI flag parsing (`flag` stdlib), program setup, mDNS discovery goroutine launch.
+- **`api.go`** — HTTP client for Awair Local API (`/air-data/latest`, `/settings/config/data`). Sensor data types, optimal range constants (temps in °F for rating), `CToF()` conversion, `RateSensorValue()` scoring logic.
+- **`discovery.go`** — mDNS auto-discovery via `grandcat/zeroconf`. Browses `_http._tcp` services matching `awair*` prefix, filters for IPv4 addresses, returns a channel.
+- **`config.go`** — Reads/writes `~/.awair-tui.json` for persistent device name mappings (IP → friendly name).
+- **`ui.go`** — Bubbletea `Model`/`Update`/`View` implementation. Responsive device grid, sensor bars with color-coded ratings, log panel, status bar, text input prompts via `bubbles/textinput`.
 
 ### Data Flow
 
-`index.ts` orchestrates: discovery finds devices → `addDevice()` stores in Map → `pollDevice()` fetches from `api.ts` → `dashboard.updateDevices()` re-renders grid. The polling interval runs continuously via `setInterval`.
+`main.go` creates the Bubbletea program → discovery goroutine sends `discoveredMsg` via `p.Send()` → `Update` handles `tickMsg` to dispatch parallel `pollCmd` per device → `pollResultMsg` updates device state → `View` re-renders the grid. All rendering is pure string output via Lipgloss.
 
 ## Key Patterns
 
-- IPv6 addresses are bracketed in URLs via `formatHost()` in `api.ts`
-- `blessed` has no types for `tput` — accessed via `any` cast to suppress terminfo errors on exit
-- `blessed.textbox.readInput()` handles its own focus; do NOT combine with `inputOnFocus: true` (causes deadlock)
+- IPv6 addresses are bracketed in URLs via `formatHost()` in `api.go`
 - Device grid layout divides available terminal height evenly across rows — no minimum height enforcement, to avoid pushing boxes off-screen
-- Sensor bars gracefully degrade: when box width is too narrow, bars are hidden and only label + value are shown (barWidth clamped to 0, not forced minimum)
-- API returns temps in Celsius; conversion to Fahrenheit via `cToF()` happens at display time in `ui.ts`, keeping API data in native units
+- Sensor bars gracefully degrade: when box width is too narrow, bars are hidden and only label + value are shown (barWidth clamped to 0)
+- API returns temps in Celsius; rating always uses °F (via `DisplayValue()`), display respects `--fahrenheit` flag via `FormatValue()`
+- Default temp display is Celsius; use `--fahrenheit` or `-f` to switch
+- Device polling uses Bubbletea commands (goroutine per device), not sequential loops
+- Config-defined names take priority over mDNS names, which take priority over device UUIDs
