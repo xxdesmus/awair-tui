@@ -43,8 +43,13 @@ export interface AwairDevice {
   lastUpdate: Date | null;
 }
 
+/** Wrap IPv6 addresses in brackets for use in URLs. */
+function formatHost(ip: string): string {
+  return ip.includes(":") && !ip.startsWith("[") ? `[${ip}]` : ip;
+}
+
 export async function fetchAirData(ip: string): Promise<AwairSensorData> {
-  const url = `http://${ip}/air-data/latest`;
+  const url = `http://${formatHost(ip)}/air-data/latest`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
 
@@ -65,7 +70,7 @@ export async function fetchAirData(ip: string): Promise<AwairSensorData> {
 export async function fetchDeviceConfig(
   ip: string
 ): Promise<AwairDeviceConfig> {
-  const url = `http://${ip}/settings/config/data`;
+  const url = `http://${formatHost(ip)}/settings/config/data`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
 
