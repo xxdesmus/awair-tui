@@ -88,13 +88,22 @@ export async function fetchDeviceConfig(
   }
 }
 
-/** Optimal ranges per Awair's scoring methodology */
+/** Convert Celsius to Fahrenheit */
+export function cToF(c: number): number {
+  return c * 9 / 5 + 32;
+}
+
+/** Optimal ranges per Awair's scoring methodology (temps in °F) */
 export const OPTIMAL_RANGES = {
-  temp: { min: 20, max: 25, unit: "°C", label: "Temperature" },
+  temp: { min: 68, max: 77, unit: "°F", label: "Temperature" },
+  dew_point: { min: 50, max: 65, unit: "°F", label: "Dew Point" },
   humid: { min: 40, max: 50, unit: "%", label: "Humidity" },
+  abs_humid: { min: 4, max: 12, unit: "g/m³", label: "Abs Humidity" },
   co2: { min: 0, max: 600, unit: "ppm", label: "CO₂" },
+  co2_est: { min: 0, max: 600, unit: "ppm", label: "CO₂ (est)" },
   voc: { min: 0, max: 300, unit: "ppb", label: "VOC" },
   pm25: { min: 0, max: 12, unit: "µg/m³", label: "PM2.5" },
+  pm10_est: { min: 0, max: 50, unit: "µg/m³", label: "PM10 (est)" },
 } as const;
 
 export type SensorKey = keyof typeof OPTIMAL_RANGES;
@@ -108,10 +117,10 @@ export function rateSensorValue(
 ): "good" | "fair" | "poor" {
   const range = OPTIMAL_RANGES[key];
 
-  if (key === "temp") {
+  if (key === "temp" || key === "dew_point") {
     if (value >= range.min && value <= range.max) return "good";
     const dist = value < range.min ? range.min - value : value - range.max;
-    return dist <= 3 ? "fair" : "poor";
+    return dist <= 5 ? "fair" : "poor";
   }
 
   if (key === "humid") {
@@ -120,7 +129,12 @@ export function rateSensorValue(
     return dist <= 10 ? "fair" : "poor";
   }
 
-  // For co2, voc, pm25 — lower is better
+  if (key === "abs_humid") {
+    if (value >= range.min && value <= range.max) return "good";
+    return "fair";
+  }
+
+  // For co2, co2_est, voc, pm25, pm10_est — lower is better
   if (value <= range.max) return "good";
   if (value <= range.max * 2) return "fair";
   return "poor";

@@ -9,11 +9,15 @@ A terminal UI for monitoring Awair air quality sensors in real time via the [Loc
 │  Awair Score    86 Good                               │
 │  ██████████████████████████████░░░░░░░░               │
 │                                                       │
-│  Temperature       23.6°C  ██████████████░░░░░░░░░░   │
-│  Humidity          55.5%   █████████████████░░░░░░░   │
-│  CO₂             965 ppm  █████████████████████░░░   │
-│  VOC             276 ppb  ████████░░░░░░░░░░░░░░░░   │
-│  PM2.5          2 µg/m³   █░░░░░░░░░░░░░░░░░░░░░░   │
+│  Temperature     74.5°F  ██████████████░░░░░░░░░░     │
+│  Humidity        55.5%   █████████████████░░░░░░░     │
+│  CO₂           965 ppm  █████████████████████░░░     │
+│  VOC           276 ppb  ████████░░░░░░░░░░░░░░░░     │
+│  PM2.5        2 µg/m³   █░░░░░░░░░░░░░░░░░░░░░░     │
+│  Dew Point     51.1°F   ██████████░░░░░░░░░░░░░░     │
+│  Abs Humidity  9.4g/m³   ████████████░░░░░░░░░░░     │
+│  CO₂ (est)    595 ppm   ████████████████████░░░░     │
+│  PM10 (est)  2 µg/m³    █░░░░░░░░░░░░░░░░░░░░░░     │
 │                                                       │
 │  Updated: 10:30:15 AM                                 │
 └───────────────────────────────────────────────────────┘
@@ -63,11 +67,15 @@ node dist/index.js --no-discovery 192.168.1.100
 
 | Sensor | Unit | Optimal Range |
 |--------|------|---------------|
-| Temperature | °C | 20 – 25 |
+| Temperature | °F | 68 – 77 |
 | Humidity | % RH | 40 – 50 |
 | CO₂ | ppm | < 600 |
 | VOC | ppb | < 300 |
 | PM2.5 | µg/m³ | < 12 |
+| Dew Point | °F | 50 – 65 |
+| Abs Humidity | g/m³ | 4 – 12 |
+| CO₂ (est) | ppm | < 600 |
+| PM10 (est) | µg/m³ | < 50 |
 
 Values are color-coded: **green** (good), **yellow** (fair), **red** (poor).
 
@@ -75,4 +83,4 @@ Values are color-coded: **green** (good), **yellow** (fair), **red** (poor).
 
 1. **Discovery** — Browses for `_http._tcp` mDNS services with names starting with `awair` (e.g. `awair-elem-1a2b3c`)
 2. **Polling** — Fetches `GET http://<device-ip>/air-data/latest` every 10 seconds (configurable)
-3. **Display** — Renders a dashboard with score, sensor bars, and color ratings per Awair's scoring methodology
+3. **Display** — Renders a responsive grid dashboard with score, sensor bars, and color ratings per Awair's scoring methodology. Bars gracefully hide in narrow columns.

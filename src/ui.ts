@@ -9,6 +9,7 @@ import {
   type SensorKey,
   OPTIMAL_RANGES,
   rateSensorValue,
+  cToF,
 } from "./api.js";
 
 const COLORS: Record<string, string> = {
@@ -39,24 +40,31 @@ function scoreLabel(score: number): string {
 
 function formatValue(key: SensorKey, value: number): string {
   const range = OPTIMAL_RANGES[key];
-  if (key === "temp") return `${value.toFixed(1)}${range.unit}`;
-  if (key === "humid") return `${value.toFixed(1)}${range.unit}`;
+  if (key === "temp" || key === "dew_point" || key === "humid" || key === "abs_humid") {
+    return `${value.toFixed(1)}${range.unit}`;
+  }
   return `${Math.round(value)} ${range.unit}`;
 }
 
 function sensorBar(key: SensorKey, value: number, width: number): string {
-  const range = OPTIMAL_RANGES[key];
   let ratio: number;
 
   if (key === "temp") {
-    // Map 10-40°C range to bar
-    ratio = Math.max(0, Math.min(1, (value - 10) / 30));
+    // Map 50-104°F range to bar
+    ratio = Math.max(0, Math.min(1, (value - 50) / 54));
+  } else if (key === "dew_point") {
+    // Map 30-80°F range to bar
+    ratio = Math.max(0, Math.min(1, (value - 30) / 50));
   } else if (key === "humid") {
     ratio = Math.max(0, Math.min(1, value / 100));
-  } else if (key === "co2") {
+  } else if (key === "abs_humid") {
+    ratio = Math.max(0, Math.min(1, value / 25));
+  } else if (key === "co2" || key === "co2_est") {
     ratio = Math.max(0, Math.min(1, value / 2500));
   } else if (key === "voc") {
     ratio = Math.max(0, Math.min(1, value / 1500));
+  } else if (key === "pm10_est") {
+    ratio = Math.max(0, Math.min(1, value / 200));
   } else {
     // pm25
     ratio = Math.max(0, Math.min(1, value / 100));
@@ -311,7 +319,7 @@ export class Dashboard {
     }
 
     const d = device.data;
-    const barWidth = Math.max(10, width - 28);
+    const barWidth = Math.max(0, width - 30);
     const lines: string[] = [];
 
     // Awair Score
@@ -320,28 +328,38 @@ export class Dashboard {
     lines.push(
       `  {bold}Awair Score{/bold}    {${sc}-fg}{bold}${d.score}{/bold} ${sl}{/${sc}-fg}`
     );
-    lines.push(`  ${scoreGauge(d.score, barWidth + 16)}`);
+    if (barWidth > 0) {
+      lines.push(`  ${scoreGauge(d.score, barWidth + 16)}`);
+    }
     lines.push("");
 
-    // Sensor readings
+    // Sensor readings (convert temps from Celsius to Fahrenheit)
     const sensors: [SensorKey, number][] = [
-      ["temp", d.temp],
+      ["temp", cToF(d.temp)],
       ["humid", d.humid],
       ["co2", d.co2],
       ["voc", d.voc],
       ["pm25", d.pm25],
     ];
+    if (d.dew_point != null) sensors.push(["dew_point", cToF(d.dew_point)]);
+    if (d.abs_humid != null) sensors.push(["abs_humid", d.abs_humid]);
+    if (d.co2_est != null) sensors.push(["co2_est", d.co2_est]);
+    if (d.pm10_est != null) sensors.push(["pm10_est", d.pm10_est]);
 
     for (const [key, value] of sensors) {
       const range = OPTIMAL_RANGES[key];
       const rating = rateSensorValue(key, value);
       const color = COLORS[rating];
       const valStr = formatValue(key, value);
-      const label = range.label.padEnd(13);
+      const label = range.label.padEnd(14);
       const valPad = valStr.padStart(12);
-      const bar = sensorBar(key, value, barWidth);
 
-      lines.push(`  {bold}${label}{/bold} {${color}-fg}${valPad}{/${color}-fg}  ${bar}`);
+      if (barWidth > 0) {
+        const bar = sensorBar(key, value, barWidth);
+        lines.push(`  {bold}${label}{/bold} {${color}-fg}${valPad}{/${color}-fg}  ${bar}`);
+      } else {
+        lines.push(`  {bold}${label}{/bold} {${color}-fg}${valPad}{/${color}-fg}`);
+      }
     }
 
     // Timestamp
