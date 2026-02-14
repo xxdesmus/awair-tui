@@ -94,16 +94,18 @@ export class Dashboard {
   private logMessages: string[] = [];
 
   constructor() {
+    // Suppress blessed's terminfo parsing errors (e.g. Setulc on modern terminals).
+    // blessed calls console.error() during screen creation when it fails to compile
+    // certain terminfo capabilities. The output is hidden by the alternate buffer but
+    // becomes visible when the terminal restores on exit.
+    const origError = console.error;
+    console.error = () => {};
     this.screen = blessed.screen({
       smartCSR: true,
       title: "Awair TUI",
       fullUnicode: true,
     });
-
-    // Suppress blessed's terminfo parsing errors (e.g. Setulc on modern terminals)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const tput = (this.screen.program as any).tput;
-    if (tput) tput.errors = [];
+    console.error = origError;
 
     // Header
     this.headerBox = blessed.box({
