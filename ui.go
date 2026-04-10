@@ -78,6 +78,8 @@ type model struct {
 	spinner       spinner.Model
 	showSpinner   bool                       // true when any device is polling
 	changedFields map[string]map[string]bool // deviceIP -> sensorKey -> changed
+
+	selectedDevice string // IP of device in expanded view, empty for grid view
 }
 
 func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenheit bool, themeName string) model {
@@ -381,6 +383,21 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePromptKey(msg)
 	}
 
+	// Handle expanded view mode
+	if m.selectedDevice != "" {
+		switch msg.String() {
+		case "esc", "enter":
+			m.selectedDevice = ""
+			return m, nil
+		case "q", "ctrl+c":
+			if m.discoveryCtx != nil {
+				m.discoveryCtx()
+			}
+			return m, tea.Quit
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "q", "esc", "ctrl+c":
 		if m.discoveryCtx != nil {
@@ -412,6 +429,13 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.addLog("Restarting mDNS discovery...")
 		return m, discoverCmd()
+
+	case "enter":
+		// Toggle expanded view for first device if any exist
+		if len(m.deviceOrder) > 0 {
+			m.selectedDevice = m.deviceOrder[0]
+			return m, nil
+		}
 	}
 
 	return m, nil
@@ -489,19 +513,27 @@ func (m model) View() string {
 	statusHeight := 1
 	gridHeight := m.height - headerHeight - logHeight - statusHeight
 
-	var grid string
-	if len(m.devices) == 0 {
-		grid = m.renderEmptyState(gridHeight)
+	var content string
+	if m.selectedDevice != "" {
+		// Show expanded view for selected device
+		if dev, ok := m.devices[m.selectedDevice]; ok {
+			content = m.renderExpandedDevice(dev, gridHeight)
+		} else {
+			m.selectedDevice = ""
+			content = m.renderDeviceGrid(gridHeight)
+		}
+	} else if len(m.devices) == 0 {
+		content = m.renderEmptyState(gridHeight)
 	} else {
-		grid = m.renderDeviceGrid(gridHeight)
+		content = m.renderDeviceGrid(gridHeight)
 	}
 
 	// Overlay prompt if active
 	if m.showPrompt {
-		grid = m.overlayPrompt(grid, gridHeight)
+		content = m.overlayPrompt(content, gridHeight)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, header, grid, logPanel, statusBar)
+	return lipgloss.JoinVertical(lipgloss.Left, header, content, logPanel, statusBar)
 }
 
 func (m model) renderHeader() string {
@@ -522,7 +554,12 @@ func (m model) renderHeader() string {
 }
 
 func (m model) renderStatusBar() string {
-	content := " q Quit  r Refresh  a Add device  d Discovery"
+	var content string
+	if m.selectedDevice != "" {
+		content = " Enter/Esc Back to grid  q Quit"
+	} else {
+		content = " q Quit  r Refresh  a Add device  d Discovery  Enter Details"
+	}
 	if m.showSpinner {
 		content = m.spinner.View() + " Polling...  " + content
 	}
@@ -946,6 +983,177 @@ func (m model) renderSparkline(values []float64, width int) string {
 	}
 
 	return lipgloss.NewStyle().Foreground(m.theme.FgSecondary).Render(result.String())
+}
+
+// renderExpandedDevice shows detailed view for a single device.
+func (m model) renderExpandedDevice(dev *Device, height int) string {
+	// Header with back hint
+	header := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(m.theme.AccentCyan).
+		Render("Device Details: " + dev.Name)
+
+	subheader := lipgloss.NewStyle().
+		Foreground(m.theme.FgMuted).
+		Render("Press [Enter] or [Esc] to return to grid view")
+
+	var lines []string
+	lines = append(lines, header)
+	lines = append(lines, subheader)
+	lines = append(lines, "")
+
+	if dev.Data == nil {
+		lines = append(lines, lipgloss.NewStyle().Foreground(m.theme.ColorFair).Render("No data available"))
+		return lipgloss.NewStyle().
+			Width(m.width).
+			Height(height).
+			Render(strings.Join(lines, "\n"))
+	}
+
+	d := dev.Data
+
+	// Score section
+	sc := m.scoreColor(d.Score)
+	scoreLine := fmt.Sprintf("Awair Score: %s (%s)",
+		lipgloss.NewStyle().Bold(true).Foreground(sc).Render(fmt.Sprintf("%d", d.Score)),
+		scoreLabel(d.Score))
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Render(scoreLine))
+	lines = append(lines, "")
+
+	// Raw sensor values section
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(m.theme.FgPrimary).Render("-- Sensor Readings --"))
+
+	sensors := []struct {
+		label string
+		value string
+	}{
+		{"Temperature", FormatValue("temp", d.Temp, m.fahrenheit)},
+		{"Humidity", FormatValue("humid", d.Humid, m.fahrenheit)},
+		{"CO₂", FormatValue("co2", d.CO2, m.fahrenheit)},
+		{"VOC", FormatValue("voc", d.VOC, m.fahrenheit)},
+		{"PM2.5", FormatValue("pm25", d.PM25, m.fahrenheit)},
+	}
+
+	if d.DewPoint != nil {
+		sensors = append(sensors, struct{ label, value string }{
+			"Dew Point", FormatValue("dew_point", *d.DewPoint, m.fahrenheit)})
+	}
+	if d.AbsHumid != nil {
+		sensors = append(sensors, struct{ label, value string }{
+			"Abs Humidity", FormatValue("abs_humid", *d.AbsHumid, m.fahrenheit)})
+	}
+	if d.CO2Est != nil {
+		sensors = append(sensors, struct{ label, value string }{
+			"CO₂ (est)", FormatValue("co2_est", *d.CO2Est, m.fahrenheit)})
+	}
+	if d.PM10Est != nil {
+		sensors = append(sensors, struct{ label, value string }{
+			"PM10 (est)", FormatValue("pm10_est", *d.PM10Est, m.fahrenheit)})
+	}
+
+	for _, s := range sensors {
+		lines = append(lines, fmt.Sprintf("  %s: %s", visPadRight(s.label, 15), s.value))
+	}
+
+	// Device info section
+	if dev.Config != nil {
+		lines = append(lines, "")
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(m.theme.FgPrimary).Render("-- Device Info --"))
+		cfg := dev.Config
+		if cfg.DeviceUUID != "" {
+			lines = append(lines, fmt.Sprintf("  UUID: %s", cfg.DeviceUUID))
+		}
+		if cfg.WifiMAC != "" {
+			lines = append(lines, fmt.Sprintf("  MAC: %s", cfg.WifiMAC))
+		}
+		if cfg.FWVersion != "" {
+			lines = append(lines, fmt.Sprintf("  Firmware: %s", cfg.FWVersion))
+		}
+		if cfg.SSID != "" {
+			lines = append(lines, fmt.Sprintf("  WiFi: %s", cfg.SSID))
+		}
+		if cfg.IP != "" {
+			lines = append(lines, fmt.Sprintf("  IP: %s", cfg.IP))
+		}
+	}
+
+	// Statistics section
+	if len(dev.History) > 1 {
+		lines = append(lines, "")
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(m.theme.FgPrimary).Render("-- Recent Statistics (last "+fmt.Sprintf("%d", len(dev.History))+" readings) --"))
+
+		// Calculate stats for each sensor
+		stats := []struct {
+			name   string
+			key    string
+			getVal func(SensorData) float64
+		}{
+			{"Temperature", "temp", func(s SensorData) float64 { return s.Temp }},
+			{"Humidity", "humid", func(s SensorData) float64 { return s.Humid }},
+			{"CO₂", "co2", func(s SensorData) float64 { return s.CO2 }},
+			{"VOC", "voc", func(s SensorData) float64 { return s.VOC }},
+			{"PM2.5", "pm25", func(s SensorData) float64 { return s.PM25 }},
+		}
+
+		for _, stat := range stats {
+			values := make([]float64, 0, len(dev.History))
+			for _, h := range dev.History {
+				values = append(values, stat.getVal(h))
+			}
+			if len(values) > 0 {
+				min, max, avg := calculateStats(values)
+				lines = append(lines, fmt.Sprintf("  %s: min %.1f, max %.1f, avg %.1f",
+					visPadRight(stat.name, 12), min, max, avg))
+			}
+		}
+	}
+
+	// Connection status
+	lines = append(lines, "")
+	statusText := "Unknown"
+	switch dev.Status {
+	case StatusOnline:
+		statusText = "Online"
+	case StatusOffline:
+		statusText = "Offline"
+	case StatusError:
+		statusText = "Error"
+	case StatusConnecting:
+		statusText = "Connecting"
+	}
+	lines = append(lines, fmt.Sprintf("Status: %s", statusText))
+	lines = append(lines, fmt.Sprintf("Last Update: %s", dev.LastUpdate.Format("15:04:05")))
+
+	content := strings.Join(lines, "\n")
+
+	return lipgloss.NewStyle().
+		Width(m.width-4).
+		Height(height-2).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(m.theme.AccentCyan).
+		Padding(1, 2).
+		Render(content)
+}
+
+// calculateStats returns min, max, and average of a slice of float64.
+func calculateStats(values []float64) (min, max, avg float64) {
+	if len(values) == 0 {
+		return 0, 0, 0
+	}
+	min = values[0]
+	max = values[0]
+	var sum float64
+	for _, v := range values {
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
+		sum += v
+	}
+	avg = sum / float64(len(values))
+	return
 }
 
 func (m model) overlayPrompt(grid string, gridHeight int) string {
