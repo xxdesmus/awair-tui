@@ -111,7 +111,8 @@ func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenhe
 	if len(cfg.Devices) > 0 {
 		m.addLog(fmt.Sprintf("Loaded %d device name(s) from config", len(cfg.Devices)))
 		for ip, name := range cfg.Devices {
-			m.addDevice(ip, name)
+			dev := m.addDevice(ip, name)
+			m.addLog(fmt.Sprintf("Added config device: %s (%s)", dev.Name, ip))
 		}
 	}
 
@@ -323,6 +324,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if !dev.LastSuccessfulPoll.IsZero() && time.Since(dev.LastSuccessfulPoll) > 30*time.Second {
 					dev.Status = StatusOffline
 				}
+
 			} else {
 				// Detect changes for animation
 				if dev.Data != nil && msg.Data != nil {
@@ -703,13 +705,14 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 	}
 	header := lipgloss.NewStyle().Bold(true).Foreground(m.theme.AccentCyan).Render(nameLabel)
 
-	if dev.LastError != nil && dev.Data == nil {
-		errStyle := lipgloss.NewStyle().Foreground(m.theme.ColorPoor)
-		errMsg := m.formatError(dev.LastError)
-		return header + "\n\n" + errStyle.Render(errMsg) + "\n\nRetrying..."
-	}
-
 	if dev.Data == nil {
+		// Show spinner on first attempts, error only after multiple failures
+		if dev.LastError != nil && len(dev.History) > 0 {
+			// We've had data before, now getting errors
+			errStyle := lipgloss.NewStyle().Foreground(m.theme.ColorPoor)
+			errMsg := m.formatError(dev.LastError)
+			return header + "\n\n" + errStyle.Render(errMsg) + "\n\nRetrying..."
+		}
 		// Show spinner below header
 		spinnerStyle := lipgloss.NewStyle().Foreground(m.theme.FgSecondary)
 		return header + "\n" + spinnerStyle.Render(m.spinner.View()+" Connecting...")
