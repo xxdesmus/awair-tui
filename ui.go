@@ -107,15 +107,20 @@ func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenhe
 		changedFields: make(map[string]map[string]bool),
 	}
 
-	// Load config-defined device count
+	// Load config-defined devices
 	if len(cfg.Devices) > 0 {
 		m.addLog(fmt.Sprintf("Loaded %d device name(s) from config", len(cfg.Devices)))
+		for ip, name := range cfg.Devices {
+			m.addDevice(ip, name)
+		}
 	}
 
 	// Add CLI-specified devices
 	for _, ip := range ips {
-		dev := m.addDevice(ip, "")
-		m.addLog(fmt.Sprintf("Added device: %s", dev.Name))
+		if _, exists := cfg.Devices[ip]; !exists {
+			dev := m.addDevice(ip, "")
+			m.addLog(fmt.Sprintf("Added device: %s", dev.Name))
+		}
 	}
 
 	return m
