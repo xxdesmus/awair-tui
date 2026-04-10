@@ -547,15 +547,15 @@ func (m model) renderEmptyState(height int) string {
 	header := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(m.theme.FgPrimary).
-		Render("☁️  No Awair Devices Found")
+		Render("No Awair Devices Found")
 
-	searching := "🔍 Searching your network via mDNS..."
+	searching := "Searching your network via mDNS..."
 
-	manual := "📡 Or manually add a device:\n" +
+	manual := "Or manually add a device:\n" +
 		"   Press [" + lipgloss.NewStyle().Bold(true).Render("a") + "] to enter an IP address"
 
-	tip := "💡 Tip: Ensure your Awair device has Local API enabled\n" +
-		"       in the Awair Home app settings"
+	tip := "Tip: Ensure your Awair device has Local API enabled\n" +
+		"     in the Awair Home app settings"
 
 	content := header + "\n\n" +
 		lipgloss.NewStyle().Foreground(m.theme.FgSecondary).Render(searching) + "\n\n" +
@@ -725,10 +725,7 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 			}
 		}
 
-		// Get icon for this sensor
-		icon := GetIcon(s.Key)
-		labelText := icon + " " + r.Label
-		label := visPadRight(labelText, 16) // Increased width for icon
+		label := visPadRight(r.Label, 14)
 		valPad := visPadLeft(valStr, 12)
 
 		valStyle := lipgloss.NewStyle().Foreground(color)
