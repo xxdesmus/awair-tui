@@ -12,35 +12,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Color palette.
-var (
-	colorGood = lipgloss.Color("#00FF00")
-	colorFair = lipgloss.Color("#FFFF00")
-	colorPoor = lipgloss.Color("#FF0000")
-	colorCyan = lipgloss.Color("#00FFFF")
-	colorGray = lipgloss.Color("#888888")
-	colorDim  = lipgloss.Color("#333333")
-)
-
-func ratingColor(rating string) lipgloss.Color {
-	switch rating {
-	case "good":
-		return colorGood
-	case "fair":
-		return colorFair
-	default:
-		return colorPoor
-	}
+// ratingColor returns the appropriate color for a rating string using the theme.
+func (m model) ratingColor(rating string) lipgloss.Color {
+	return m.theme.ratingColor(rating)
 }
 
-func scoreColor(score int) lipgloss.Color {
-	if score >= 80 {
-		return colorGood
-	}
-	if score >= 60 {
-		return colorFair
-	}
-	return colorPoor
+// scoreColor returns the appropriate color for a score value using the theme.
+func (m model) scoreColor(score int) lipgloss.Color {
+	return m.theme.scoreColor(score)
 }
 
 func scoreLabel(score int) string {
@@ -84,6 +63,7 @@ type model struct {
 	width       int
 	height      int
 	fahrenheit  bool
+	theme       Theme
 
 	showPrompt  bool
 	promptStep  string // "ip" or "name"
@@ -95,7 +75,7 @@ type model struct {
 	discoveryCtx func() // cancel function for discovery
 }
 
-func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenheit bool) model {
+func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenheit bool, themeName string) model {
 	ti := textinput.New()
 	ti.CharLimit = 64
 	ti.Width = 40
@@ -106,6 +86,7 @@ func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenhe
 		config:       cfg,
 		logs:         []logEntry{},
 		fahrenheit:   fahrenheit,
+		theme:        GetTheme(themeName),
 		promptInput:  ti,
 		pollInterval: time.Duration(interval) * time.Second,
 		noDiscovery:  noDiscovery,
@@ -239,7 +220,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Poll all devices
 		var cmds []tea.Cmd
 		for _, ip := range m.deviceOrder {
-	
+
 			cmds = append(cmds, pollCmd(ip))
 		}
 		cmds = append(cmds, tickCmd(m.pollInterval))
@@ -312,7 +293,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.addLog("Refreshing...")
 		var cmds []tea.Cmd
 		for _, ip := range m.deviceOrder {
-	
+
 			cmds = append(cmds, pollCmd(ip))
 		}
 		return m, tea.Batch(cmds...)
@@ -427,11 +408,11 @@ func (m model) View() string {
 func (m model) renderHeader() string {
 	title := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(colorCyan).
+		Foreground(m.theme.AccentCyan).
 		Render(" ☁  Awair TUI ")
 
 	subtitle := lipgloss.NewStyle().
-		Foreground(colorGray).
+		Foreground(m.theme.FgMuted).
 		Render("Real-time air quality monitoring")
 
 	line := title + " " + subtitle
@@ -444,17 +425,17 @@ func (m model) renderHeader() string {
 func (m model) renderStatusBar() string {
 	return lipgloss.NewStyle().
 		Width(m.width).
-		Background(lipgloss.Color("#333333")).
-		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(m.theme.BgTertiary).
+		Foreground(m.theme.FgSecondary).
 		Render(" q Quit  r Refresh  a Add device  d Discovery")
 }
 
 func (m model) renderLogPanel() string {
 	border := lipgloss.NewStyle().
-		Width(m.width - 2).
+		Width(m.width-2).
 		Height(4).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorGray).
+		BorderForeground(m.theme.BgTertiary).
 		Padding(0, 1)
 
 	start := len(m.logs) - 4
@@ -463,7 +444,7 @@ func (m model) renderLogPanel() string {
 	}
 	lines := make([]string, 0, 4)
 	for _, entry := range m.logs[start:] {
-		ts := lipgloss.NewStyle().Foreground(colorGray).Render(entry.Time.Format("15:04:05"))
+		ts := lipgloss.NewStyle().Foreground(m.theme.FgMuted).Render(entry.Time.Format("15:04:05"))
 		lines = append(lines, ts+" "+entry.Message)
 	}
 
@@ -482,7 +463,7 @@ func (m model) renderEmptyState(height int) string {
 		Width(m.width).
 		Height(height).
 		Align(lipgloss.Center, lipgloss.Center).
-		Foreground(colorGray).
+		Foreground(m.theme.FgMuted).
 		Render(msg)
 }
 
@@ -541,11 +522,11 @@ func (m model) renderDeviceGrid(height int) string {
 			content := m.renderDeviceContent(dev, innerWidth)
 
 			box := lipgloss.NewStyle().
-				Width(w - 2).
+				Width(w-2).
 				MaxWidth(w).
-				Height(boxHeight - 2).
+				Height(boxHeight-2).
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(colorCyan).
+				BorderForeground(m.theme.AccentCyan).
 				Padding(0, 1).
 				Render(content)
 
@@ -563,15 +544,15 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 	if lipgloss.Width(nameLabel) > width {
 		nameLabel = nameLabel[:width]
 	}
-	header := lipgloss.NewStyle().Bold(true).Foreground(colorCyan).Render(nameLabel)
+	header := lipgloss.NewStyle().Bold(true).Foreground(m.theme.AccentCyan).Render(nameLabel)
 
 	if dev.LastError != nil && dev.Data == nil {
-		errStyle := lipgloss.NewStyle().Foreground(colorPoor)
+		errStyle := lipgloss.NewStyle().Foreground(m.theme.ColorPoor)
 		return header + "\n\n" + errStyle.Render("Error: "+dev.LastError.Error()) + "\n\nRetrying..."
 	}
 
 	if dev.Data == nil {
-		return header + "\n\n" + lipgloss.NewStyle().Foreground(colorFair).Render("Connecting...")
+		return header + "\n\n" + lipgloss.NewStyle().Foreground(m.theme.ColorFair).Render("Connecting...")
 	}
 
 	d := dev.Data
@@ -584,7 +565,7 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 	lines = append(lines, header)
 
 	// Awair Score
-	sc := scoreColor(d.Score)
+	sc := m.scoreColor(d.Score)
 	sl := scoreLabel(d.Score)
 	scoreStyle := lipgloss.NewStyle().Bold(true).Foreground(sc)
 	lines = append(lines,
@@ -593,7 +574,7 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 			scoreStyle.Render(fmt.Sprintf("%d %s", d.Score, sl))))
 
 	if barWidth > 0 {
-		lines = append(lines, renderGauge(d.Score, barWidth, sc))
+		lines = append(lines, m.renderGauge(d.Score, barWidth, sc))
 	}
 	lines = append(lines, "")
 
@@ -627,7 +608,7 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 		r := OptimalRanges[s.Key]
 		ratingVal := DisplayValue(s.Key, s.Value)
 		rating := RateSensorValue(s.Key, ratingVal)
-		color := ratingColor(rating)
+		color := m.ratingColor(rating)
 		valStr := FormatValue(s.Key, s.Value, m.fahrenheit)
 		label := visPadRight(r.Label, 14)
 		valPad := visPadLeft(valStr, 12)
@@ -636,7 +617,7 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 		labelStyle := lipgloss.NewStyle().Bold(true)
 
 		if barWidth > 0 {
-			bar := renderSensorBar(s.Key, ratingVal, barWidth, color)
+			bar := m.renderSensorBar(s.Key, ratingVal, barWidth, color)
 			lines = append(lines, fmt.Sprintf("%s %s  %s",
 				labelStyle.Render(label),
 				valStyle.Render(valPad),
@@ -651,7 +632,7 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 	// Timestamp
 	if !dev.LastUpdate.IsZero() {
 		lines = append(lines, "")
-		ts := lipgloss.NewStyle().Foreground(colorGray).
+		ts := lipgloss.NewStyle().Foreground(m.theme.FgMuted).
 			Render("Updated: " + dev.LastUpdate.Format("15:04:05"))
 		lines = append(lines, ts)
 	}
@@ -659,7 +640,7 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderGauge(score int, width int, color lipgloss.Color) string {
+func (m model) renderGauge(score int, width int, color lipgloss.Color) string {
 	if width <= 0 {
 		return ""
 	}
@@ -670,13 +651,13 @@ func renderGauge(score int, width int, color lipgloss.Color) string {
 	}
 
 	filledStyle := lipgloss.NewStyle().Foreground(color)
-	emptyStyle := lipgloss.NewStyle().Foreground(colorDim)
+	emptyStyle := lipgloss.NewStyle().Foreground(m.theme.BgTertiary)
 
 	return filledStyle.Render(strings.Repeat("█", filled)) +
 		emptyStyle.Render(strings.Repeat("░", width-filled))
 }
 
-func renderSensorBar(key string, value float64, width int, color lipgloss.Color) string {
+func (m model) renderSensorBar(key string, value float64, width int, color lipgloss.Color) string {
 	if width <= 0 {
 		return ""
 	}
@@ -707,7 +688,7 @@ func renderSensorBar(key string, value float64, width int, color lipgloss.Color)
 	}
 
 	filledStyle := lipgloss.NewStyle().Foreground(color)
-	emptyStyle := lipgloss.NewStyle().Foreground(colorDim)
+	emptyStyle := lipgloss.NewStyle().Foreground(m.theme.BgTertiary)
 
 	return filledStyle.Render(strings.Repeat("█", filled)) +
 		emptyStyle.Render(strings.Repeat("░", width-filled))
@@ -734,7 +715,7 @@ func (m model) overlayPrompt(grid string, gridHeight int) string {
 	promptBox := lipgloss.NewStyle().
 		Width(50).
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorCyan).
+		BorderForeground(m.theme.AccentCyan).
 		Padding(0, 1).
 		Render(title + "\n" + m.promptInput.View())
 

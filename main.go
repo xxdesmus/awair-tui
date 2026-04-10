@@ -13,6 +13,7 @@ func main() {
 	noDiscovery := flag.Bool("no-discovery", false, "Disable mDNS auto-discovery")
 	interval := flag.Int("interval", 10, "Polling interval in seconds")
 	fahrenheit := flag.Bool("fahrenheit", false, "Display temperatures in Fahrenheit")
+	theme := flag.String("theme", "nord", "Color theme (nord, catppuccin, tokyonight, gruvbox, dracula, classic)")
 
 	// Short flags
 	flag.IntVar(interval, "i", 10, "Polling interval in seconds (shorthand)")
@@ -28,16 +29,33 @@ Options:
 `)
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, `
+Available themes: nord, catppuccin, tokyonight, gruvbox, dracula, classic
+Use --theme help to see all available themes
+
 Examples:
   awair-tui                            Auto-discover devices
   awair-tui 192.168.1.100              Connect to specific device
   awair-tui -i 5 192.168.1.100        Poll every 5s
   awair-tui --fahrenheit               Show temps in °F
+  awair-tui --theme tokyonight         Use Tokyo Night theme
 `)
 	}
 
 	flag.Parse()
 	ips := flag.Args()
+
+	// Handle theme help request
+	if *theme == "help" {
+		fmt.Println("Available themes:")
+		fmt.Println()
+		for _, name := range ListThemes() {
+			t := GetTheme(name)
+			fmt.Printf("  %-12s %s\n", name, t.Description)
+		}
+		fmt.Println()
+		fmt.Println("Use --theme <name> to select a theme")
+		os.Exit(0)
+	}
 
 	cfg := LoadConfig()
 
@@ -49,7 +67,7 @@ Examples:
 		ctx, cancel = context.WithCancel(context.Background())
 	}
 
-	m := initialModel(cfg, ips, *interval, *noDiscovery, *fahrenheit)
+	m := initialModel(cfg, ips, *interval, *noDiscovery, *fahrenheit, *theme)
 	if cancel != nil {
 		m.discoveryCtx = cancel
 	}

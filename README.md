@@ -26,7 +26,7 @@ A terminal UI for monitoring Awair air quality sensors in real time via the [Loc
 ## Prerequisites
 
 - [Go 1.24+](https://go.dev/dl/) (to build from source)
-- Awair Element (or 2nd Edition) with Local API enabled via the Awair Home app
+- Awair Element / 2nd Edition with Local API enabled via the Awair Home app
 
 ## Install
 
@@ -62,7 +62,28 @@ go build -o awair-tui .
 
 # Skip mDNS discovery, only use specified IPs
 ./awair-tui --no-discovery 192.168.1.100
+
+# Use a custom color theme (nord, catppuccin, tokyonight, gruvbox, dracula, classic)
+./awair-tui --theme tokyonight
+
+# List all available themes
+./awair-tui --theme help
 ```
+
+## Color Themes
+
+Awair TUI supports multiple color themes for different visual preferences:
+
+| Theme | Description |
+|-------|-------------|
+| `nord` (default) | Cool, icy blue-based palette inspired by Nordic aesthetics |
+| `catppuccin` | Soft, pastel palette with gentle contrast |
+| `tokyonight` | Deep purple-blue palette inspired by Tokyo at night |
+| `gruvbox` | Warm, earthy palette with retro aesthetics |
+| `dracula` | Vibrant, high-contrast palette with neon accents |
+| `classic` | Original neon color scheme with bright, high-contrast colors |
+
+Use `--theme help` to see all available themes with descriptions.
 
 ## Keyboard Shortcuts
 
