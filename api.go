@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -103,8 +104,11 @@ func formatHost(ip string) string {
 // FetchAirData retrieves the latest sensor data from an Awair device.
 func FetchAirData(ip string) (*SensorData, error) {
 	url := fmt.Sprintf("http://%s/air-data/latest", formatHost(ip))
+	// Debug: print when we make a request
+	fmt.Fprintf(os.Stderr, "[DEBUG] Fetching from %s\n", url)
 	resp, err := httpClient.Get(url)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[DEBUG] Error fetching from %s: %v\n", url, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
