@@ -705,7 +705,8 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 
 	if dev.LastError != nil && dev.Data == nil {
 		errStyle := lipgloss.NewStyle().Foreground(m.theme.ColorPoor)
-		return header + "\n\n" + errStyle.Render("Error: "+dev.LastError.Error()) + "\n\nRetrying..."
+		errMsg := m.formatError(dev.LastError)
+		return header + "\n\n" + errStyle.Render(errMsg) + "\n\nRetrying..."
 	}
 
 	if dev.Data == nil {
@@ -1197,4 +1198,41 @@ func visPadLeft(s string, n int) string {
 		return s
 	}
 	return strings.Repeat(" ", n-w) + s
+}
+
+// formatError converts ugly Go errors into user-friendly messages.
+func (m model) formatError(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	errStr := err.Error()
+
+	// Network connectivity errors
+	if strings.Contains(errStr, "connect: host is down") {
+		return "Device offline - check power and network connection"
+	}
+	if strings.Contains(errStr, "no route to host") {
+		return "Device unreachable - check network"
+	}
+	if strings.Contains(errStr, "connection refused") {
+		return "Connection refused - Local API may be disabled"
+	}
+	if strings.Contains(errStr, "timeout") {
+		return "Request timed out - device may be slow to respond"
+	}
+	if strings.Contains(errStr, "dial tcp") && strings.Contains(errStr, "i/o timeout") {
+		return "Network timeout - device not responding"
+	}
+
+	// HTTP errors
+	if strings.Contains(errStr, "HTTP 404") {
+		return "Device API not found - verify Local API is enabled"
+	}
+	if strings.Contains(errStr, "HTTP 500") {
+		return "Device error - sensor may be initializing"
+	}
+
+	// Generic fallback
+	return "Connection failed"
 }
