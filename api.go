@@ -46,12 +46,14 @@ type DeviceConfig struct {
 
 // Device holds the state for a single Awair device.
 type Device struct {
-	IP         string
-	Name       string
-	Data       *SensorData
-	Config     *DeviceConfig
-	LastError  error
-	LastUpdate time.Time
+	IP           string
+	Name         string
+	Data         *SensorData
+	PreviousData *SensorData // For change detection animations
+	Config       *DeviceConfig
+	LastError    error
+	LastUpdate   time.Time
+	IsConnecting bool // For spinner state
 }
 
 // SensorRange defines the optimal range for a sensor reading.

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -73,6 +74,10 @@ type model struct {
 	pollInterval time.Duration
 	noDiscovery  bool
 	discoveryCtx func() // cancel function for discovery
+
+	spinner       spinner.Model
+	showSpinner   bool                       // true when any device is polling
+	changedFields map[string]map[string]bool // deviceIP -> sensorKey -> changed
 }
 
 func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenheit bool, themeName string) model {
@@ -80,16 +85,24 @@ func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenhe
 	ti.CharLimit = 64
 	ti.Width = 40
 
+	theme := GetTheme(themeName)
+
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(theme.FgSecondary)
+
 	m := model{
-		devices:      make(map[string]*Device),
-		deviceOrder:  []string{},
-		config:       cfg,
-		logs:         []logEntry{},
-		fahrenheit:   fahrenheit,
-		theme:        GetTheme(themeName),
-		promptInput:  ti,
-		pollInterval: time.Duration(interval) * time.Second,
-		noDiscovery:  noDiscovery,
+		devices:       make(map[string]*Device),
+		deviceOrder:   []string{},
+		config:        cfg,
+		logs:          []logEntry{},
+		fahrenheit:    fahrenheit,
+		theme:         GetTheme(themeName),
+		promptInput:   ti,
+		pollInterval:  time.Duration(interval) * time.Second,
+		noDiscovery:   noDiscovery,
+		spinner:       s,
+		changedFields: make(map[string]map[string]bool),
 	}
 
 	// Load config-defined device count
@@ -110,6 +123,65 @@ func (m *model) addLog(msg string) {
 	m.logs = append(m.logs, logEntry{Time: time.Now(), Message: msg})
 	if len(m.logs) > 100 {
 		m.logs = m.logs[1:]
+	}
+}
+
+// detectChanges compares new data with previous data to track which fields changed.
+func (m *model) detectChanges(ip string, newData *SensorData) {
+	dev := m.devices[ip]
+	if dev.PreviousData == nil {
+		return
+	}
+
+	if m.changedFields[ip] == nil {
+		m.changedFields[ip] = make(map[string]bool)
+	}
+
+	old := dev.PreviousData
+	if newData.Temp != old.Temp {
+		m.changedFields[ip]["temp"] = true
+	}
+	if newData.Humid != old.Humid {
+		m.changedFields[ip]["humid"] = true
+	}
+	if newData.CO2 != old.CO2 {
+		m.changedFields[ip]["co2"] = true
+	}
+	if newData.VOC != old.VOC {
+		m.changedFields[ip]["voc"] = true
+	}
+	if newData.PM25 != old.PM25 {
+		m.changedFields[ip]["pm25"] = true
+	}
+	if newData.DewPoint != nil && old.DewPoint != nil && *newData.DewPoint != *old.DewPoint {
+		m.changedFields[ip]["dew_point"] = true
+	}
+	if newData.AbsHumid != nil && old.AbsHumid != nil && *newData.AbsHumid != *old.AbsHumid {
+		m.changedFields[ip]["abs_humid"] = true
+	}
+	if newData.CO2Est != nil && old.CO2Est != nil && *newData.CO2Est != *old.CO2Est {
+		m.changedFields[ip]["co2_est"] = true
+	}
+	if newData.PM10Est != nil && old.PM10Est != nil && *newData.PM10Est != *old.PM10Est {
+		m.changedFields[ip]["pm10_est"] = true
+	}
+}
+
+// updateSpinnerState updates whether the spinner should be shown.
+func (m *model) updateSpinnerState() {
+	m.showSpinner = false
+	for _, dev := range m.devices {
+		if dev.IsConnecting {
+			m.showSpinner = true
+			return
+		}
+	}
+}
+
+// clearChangedField marks a field as no longer changed (after animation).
+func (m *model) clearChangedField(ip, key string) {
+	if m.changedFields[ip] != nil {
+		delete(m.changedFields[ip], key)
 	}
 }
 
@@ -216,26 +288,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
 	case tickMsg:
 		// Poll all devices
 		var cmds []tea.Cmd
 		for _, ip := range m.deviceOrder {
-
+			if dev, ok := m.devices[ip]; ok {
+				dev.IsConnecting = true
+			}
 			cmds = append(cmds, pollCmd(ip))
 		}
 		cmds = append(cmds, tickCmd(m.pollInterval))
+		m.updateSpinnerState()
 		return m, tea.Batch(cmds...)
 
 	case pollResultMsg:
 		if dev, ok := m.devices[msg.IP]; ok {
+			dev.IsConnecting = false
 			if msg.Err != nil {
 				dev.LastError = msg.Err
 			} else {
+				// Detect changes for animation
+				if dev.Data != nil && msg.Data != nil {
+					m.detectChanges(msg.IP, msg.Data)
+				}
+				dev.PreviousData = dev.Data
 				dev.Data = msg.Data
 				dev.LastError = nil
 				dev.LastUpdate = time.Now()
 			}
 		}
+		m.updateSpinnerState()
 		return m, nil
 
 	case configResultMsg:
@@ -423,11 +510,15 @@ func (m model) renderHeader() string {
 }
 
 func (m model) renderStatusBar() string {
+	content := " q Quit  r Refresh  a Add device  d Discovery"
+	if m.showSpinner {
+		content = m.spinner.View() + " Polling...  " + content
+	}
 	return lipgloss.NewStyle().
 		Width(m.width).
 		Background(m.theme.BgTertiary).
 		Foreground(m.theme.FgSecondary).
-		Render(" q Quit  r Refresh  a Add device  d Discovery")
+		Render(content)
 }
 
 func (m model) renderLogPanel() string {
@@ -453,18 +544,29 @@ func (m model) renderLogPanel() string {
 }
 
 func (m model) renderEmptyState(height int) string {
-	msg := lipgloss.NewStyle().Bold(true).Render("No Awair devices found") + "\n\n" +
-		"Searching via mDNS discovery...\n\n" +
-		"Press " + lipgloss.NewStyle().Bold(true).Render("a") + " to manually add a device IP\n" +
-		"Press " + lipgloss.NewStyle().Bold(true).Render("d") + " to restart discovery\n" +
-		"Press " + lipgloss.NewStyle().Bold(true).Render("q") + " to quit"
+	header := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(m.theme.FgPrimary).
+		Render("☁️  No Awair Devices Found")
+
+	searching := "🔍 Searching your network via mDNS..."
+
+	manual := "📡 Or manually add a device:\n" +
+		"   Press [" + lipgloss.NewStyle().Bold(true).Render("a") + "] to enter an IP address"
+
+	tip := "💡 Tip: Ensure your Awair device has Local API enabled\n" +
+		"       in the Awair Home app settings"
+
+	content := header + "\n\n" +
+		lipgloss.NewStyle().Foreground(m.theme.FgSecondary).Render(searching) + "\n\n" +
+		lipgloss.NewStyle().Foreground(m.theme.FgSecondary).Render(manual) + "\n\n" +
+		lipgloss.NewStyle().Foreground(m.theme.FgMuted).Render(tip)
 
 	return lipgloss.NewStyle().
 		Width(m.width).
 		Height(height).
 		Align(lipgloss.Center, lipgloss.Center).
-		Foreground(m.theme.FgMuted).
-		Render(msg)
+		Render(content)
 }
 
 // gridCols picks column count for the device grid.
@@ -552,7 +654,9 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 	}
 
 	if dev.Data == nil {
-		return header + "\n\n" + lipgloss.NewStyle().Foreground(m.theme.ColorFair).Render("Connecting...")
+		// Show spinner below header
+		spinnerStyle := lipgloss.NewStyle().Foreground(m.theme.FgSecondary)
+		return header + "\n" + spinnerStyle.Render(m.spinner.View()+" Connecting...")
 	}
 
 	d := dev.Data
@@ -610,10 +714,28 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 		rating := RateSensorValue(s.Key, ratingVal)
 		color := m.ratingColor(rating)
 		valStr := FormatValue(s.Key, s.Value, m.fahrenheit)
-		label := visPadRight(r.Label, 14)
+
+		// Check if this field just changed for animation
+		changed := false
+		if devChanges, ok := m.changedFields[dev.IP]; ok {
+			if devChanges[s.Key] {
+				changed = true
+				// Clear the changed flag (animation lasts one tick)
+				m.clearChangedField(dev.IP, s.Key)
+			}
+		}
+
+		// Get icon for this sensor
+		icon := GetIcon(s.Key)
+		labelText := icon + " " + r.Label
+		label := visPadRight(labelText, 16) // Increased width for icon
 		valPad := visPadLeft(valStr, 12)
 
 		valStyle := lipgloss.NewStyle().Foreground(color)
+		// Apply subtle highlight if value just changed
+		if changed {
+			valStyle = valStyle.Background(m.theme.BgSecondary)
+		}
 		labelStyle := lipgloss.NewStyle().Bold(true)
 
 		if barWidth > 0 {
