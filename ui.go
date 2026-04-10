@@ -234,8 +234,8 @@ func (m *model) orderedDevices() []*Device {
 }
 
 func (m model) Init() tea.Cmd {
-	// Start the first tick and poll all existing devices immediately
-	cmds := []tea.Cmd{tickCmd(m.pollInterval)}
+	// Start the first tick, spinner, and poll all existing devices immediately
+	cmds := []tea.Cmd{tickCmd(m.pollInterval), m.spinner.Tick}
 	for _, ip := range m.deviceOrder {
 
 		cmds = append(cmds, pollCmd(ip), configCmd(ip))
