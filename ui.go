@@ -748,16 +748,62 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 		}
 		labelStyle := lipgloss.NewStyle().Bold(true)
 
+		// Build sparkline from history
+		sparkline := ""
+		if len(dev.History) > 1 {
+			historyValues := make([]float64, 0, len(dev.History))
+			for _, h := range dev.History {
+				switch s.Key {
+				case "temp":
+					historyValues = append(historyValues, h.Temp)
+				case "humid":
+					historyValues = append(historyValues, h.Humid)
+				case "co2":
+					historyValues = append(historyValues, h.CO2)
+				case "voc":
+					historyValues = append(historyValues, h.VOC)
+				case "pm25":
+					historyValues = append(historyValues, h.PM25)
+				case "dew_point":
+					if h.DewPoint != nil {
+						historyValues = append(historyValues, *h.DewPoint)
+					}
+				case "abs_humid":
+					if h.AbsHumid != nil {
+						historyValues = append(historyValues, *h.AbsHumid)
+					}
+				case "co2_est":
+					if h.CO2Est != nil {
+						historyValues = append(historyValues, *h.CO2Est)
+					}
+				case "pm10_est":
+					if h.PM10Est != nil {
+						historyValues = append(historyValues, *h.PM10Est)
+					}
+				}
+			}
+			sparkWidth := 8
+			if barWidth > 0 {
+				sparkWidth = 6
+			}
+			sparkline = m.renderSparkline(historyValues, sparkWidth)
+			if sparkline != "" {
+				sparkline = " " + sparkline
+			}
+		}
+
 		if barWidth > 0 {
 			bar := m.renderSensorBar(s.Key, ratingVal, barWidth, color)
-			lines = append(lines, fmt.Sprintf("%s %s  %s",
+			lines = append(lines, fmt.Sprintf("%s %s  %s%s",
 				labelStyle.Render(label),
 				valStyle.Render(valPad),
-				bar))
+				bar,
+				sparkline))
 		} else {
-			lines = append(lines, fmt.Sprintf("%s %s",
+			lines = append(lines, fmt.Sprintf("%s %s%s",
 				labelStyle.Render(label),
-				valStyle.Render(valPad)))
+				valStyle.Render(valPad),
+				sparkline))
 		}
 	}
 
@@ -850,6 +896,56 @@ func (m model) renderStatusIndicator(status ConnectionStatus) string {
 	default:
 		return lipgloss.NewStyle().Foreground(m.theme.FgMuted).Render("○")
 	}
+}
+
+// Sparkline characters (low to high)
+var sparklineChars = []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
+
+// renderSparkline creates an ASCII sparkline from a slice of values.
+func (m model) renderSparkline(values []float64, width int) string {
+	if len(values) == 0 || width <= 0 {
+		return ""
+	}
+
+	// Take last 'width' values
+	start := 0
+	if len(values) > width {
+		start = len(values) - width
+	}
+	displayValues := values[start:]
+
+	// Find min and max
+	minVal, maxVal := displayValues[0], displayValues[0]
+	for _, v := range displayValues {
+		if v < minVal {
+			minVal = v
+		}
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+
+	// Handle edge case where all values are the same
+	if minVal == maxVal {
+		return strings.Repeat(sparklineChars[len(sparklineChars)/2], len(displayValues))
+	}
+
+	// Build sparkline
+	var result strings.Builder
+	range_val := maxVal - minVal
+	for _, v := range displayValues {
+		normalized := (v - minVal) / range_val
+		idx := int(normalized * float64(len(sparklineChars)-1))
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(sparklineChars) {
+			idx = len(sparklineChars) - 1
+		}
+		result.WriteString(sparklineChars[idx])
+	}
+
+	return lipgloss.NewStyle().Foreground(m.theme.FgSecondary).Render(result.String())
 }
 
 func (m model) overlayPrompt(grid string, gridHeight int) string {
