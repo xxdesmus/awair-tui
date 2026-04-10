@@ -319,8 +319,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Err != nil {
 				dev.LastError = msg.Err
 				dev.Status = StatusError
-				// Check if offline (no successful poll for 30s)
-				if time.Since(dev.LastSuccessfulPoll) > 30*time.Second {
+				// Check if offline (no successful poll for 30s, but only if we've had a successful poll)
+				if !dev.LastSuccessfulPoll.IsZero() && time.Since(dev.LastSuccessfulPoll) > 30*time.Second {
 					dev.Status = StatusOffline
 				}
 			} else {
