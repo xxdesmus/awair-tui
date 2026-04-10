@@ -5,23 +5,21 @@ A terminal UI for monitoring Awair air quality sensors in real time via the [Loc
 ```
  ☁  Awair TUI   Real-time air quality monitoring
 
-┌─ AWAIR-ELEM-1A2B3C (192.168.1.100) ────────────────--─┐
+┌─ ● AWAIR-ELEM-1A2B3C (192.168.1.100) ───────────────┐
 │  Awair Score    86 Good                               │
 │  ██████████████████████████████░░░░░░░░               │
 │                                                       │
-│  Temperature    23.6°C   ██████████████░░░░░░░░░░     │
-│  Humidity       55.5%    █████████████████░░░░░░░     │
-│  CO₂           965 ppm   █████████████████████░░░     │
-│  VOC           276 ppb   ████████░░░░░░░░░░░░░░░░     │
-│  PM2.5        2 µg/m³    █░░░░░░░░░░░░░░░░░░░░░░░     │
-│  Dew Point     10.6°C    ██████████░░░░░░░░░░░░░░     │
-│  Abs Humidity  9.4 g/m³  ████████████░░░░░░░░░░░░     │
-│  CO₂ (est)    595 ppm    ████████████████████░░░░     │
-│  PM10 (est)  2 µg/m³     █░░░░░░░░░░░░░░░░░░░░░░░     │
+│  Temperature    23.6°C   ██████████████░░░░░░░░░░ ▃▄▆ │
+│  Humidity       55.5%    █████████████████░░░░░░░ ▅▆▇ │
+│  CO₂           965 ppm   █████████████████████░░░ ███ │
+│  VOC           276 ppb   ████████░░░░░░░░░░░░░░░░ ▃▄▃ │
+│  PM2.5        2 µg/m³    █░░░░░░░░░░░░░░░░░░░░░░░ ▁▂▄ │
 │                                                       │
 │  Updated: 10:30:15                                    │
 └───────────────────────────────────────────────────────┘
 ```
+
+*● = online, sparklines show recent trends*
 
 ## Prerequisites
 
@@ -93,6 +91,28 @@ Use `--theme help` to see all available themes with descriptions.
 | `r` | Force refresh all devices |
 | `a` | Add a device by IP address |
 | `d` | Restart mDNS discovery |
+| `Enter` | View detailed device info (press again to return) |
+
+## Features
+
+### Connection Status Indicators
+Each device card shows a colored status dot:
+- **● Green** — Device online and responding
+- **● Red** — Device offline (no response for 30+ seconds)
+- **● Yellow** — Error state (last poll failed)
+- **○ Gray** — Connecting (initial connection)
+
+### Sparkline Trends
+Mini ASCII charts (▃▄▆▇█) display next to each sensor, showing the trend from the last 20 readings. This helps visualize whether air quality is improving or degrading over time.
+
+### Detailed Device View
+Press `Enter` to expand any device and see:
+- Raw sensor readings with units
+- Device configuration (UUID, MAC address, firmware version, WiFi SSID)
+- Statistics from recent history (min/max/average for each sensor)
+- Connection status and last update time
+
+Press `Enter` or `Esc` to return to the grid view.
 
 ## Sensors
 

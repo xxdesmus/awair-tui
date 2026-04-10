@@ -23,7 +23,7 @@ A Go terminal application that monitors Awair air sensors in real-time via their
 - **`api.go`** — HTTP client for Awair Local API (`/air-data/latest`, `/settings/config/data`). Sensor data types, optimal range constants (temps in °F for rating), `CToF()` conversion, `RateSensorValue()` scoring logic.
 - **`discovery.go`** — mDNS auto-discovery via `hashicorp/mdns`. Queries `_http._tcp` services matching `awair*` prefix, filters for IPv4 addresses, returns a channel. Re-queries every 30s.
 - **`config.go`** — Reads/writes `~/.awair-tui.json` for persistent device name mappings (IP → friendly name).
-- **`ui.go`** — Bubbletea `Model`/`Update`/`View` implementation. Responsive device grid, sensor bars with color-coded ratings, log panel, status bar, text input prompts via `bubbles/textinput`. All styling uses the active theme from `theme.go`.
+- **`ui.go`** — Bubbletea `Model`/`Update`/`View` implementation. Responsive device grid, sensor bars with color-coded ratings, sparkline trend graphs, connection status indicators, expandable detailed view, log panel, status bar, text input prompts via `bubbles/textinput`. All styling uses the active theme from `theme.go`.
 - **`theme.go`** — Color theme system with 6 built-in themes (nord, catppuccin, tokyonight, gruvbox, dracula, classic). Themes define backgrounds, foregrounds, accents, and status colors for consistent UI styling.
 
 ### Data Flow
@@ -35,6 +35,9 @@ A Go terminal application that monitors Awair air sensors in real-time via their
 - IPv6 addresses are bracketed in URLs via `formatHost()` in `api.go`
 - Device grid layout divides available terminal height evenly across rows — no minimum height enforcement, to avoid pushing boxes off-screen
 - Sensor bars gracefully degrade: when box width is too narrow, bars are hidden and only label + value are shown (barWidth clamped to 0)
+- Sparkline trend graphs show last 20 readings using Unicode block characters (▁▂▃▄▅▆▇█)
+- Connection status indicators: ● green (online), ● red (offline), ● yellow (error), ○ gray (connecting)
+- Expandable detailed view accessed via Enter key; shows raw data, device config, and statistics
 - API returns temps in Celsius; rating always uses °F (via `DisplayValue()`), display respects `--fahrenheit` flag via `FormatValue()`
 - Default temp display is Celsius; use `--fahrenheit` or `-f` to switch
 - Device polling uses Bubbletea commands (goroutine per device), not sequential loops
