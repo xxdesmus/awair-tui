@@ -44,16 +44,29 @@ type DeviceConfig struct {
 	Display    string `json:"display"`
 }
 
+// ConnectionStatus represents the connection state of a device.
+type ConnectionStatus int
+
+const (
+	StatusConnecting ConnectionStatus = iota
+	StatusOnline
+	StatusOffline
+	StatusError
+)
+
 // Device holds the state for a single Awair device.
 type Device struct {
-	IP           string
-	Name         string
-	Data         *SensorData
-	PreviousData *SensorData // For change detection animations
-	Config       *DeviceConfig
-	LastError    error
-	LastUpdate   time.Time
-	IsConnecting bool // For spinner state
+	IP                 string
+	Name               string
+	Data               *SensorData
+	PreviousData       *SensorData // For change detection animations
+	Config             *DeviceConfig
+	LastError          error
+	LastUpdate         time.Time
+	LastSuccessfulPoll time.Time
+	Status             ConnectionStatus
+	IsConnecting       bool         // For spinner state
+	History            []SensorData // Last 20 readings for sparklines
 }
 
 // SensorRange defines the optimal range for a sensor reading.

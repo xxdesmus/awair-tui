@@ -311,15 +311,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			dev.IsConnecting = false
 			if msg.Err != nil {
 				dev.LastError = msg.Err
+				dev.Status = StatusError
+				// Check if offline (no successful poll for 30s)
+				if time.Since(dev.LastSuccessfulPoll) > 30*time.Second {
+					dev.Status = StatusOffline
+				}
 			} else {
 				// Detect changes for animation
 				if dev.Data != nil && msg.Data != nil {
 					m.detectChanges(msg.IP, msg.Data)
 				}
+				// Store in history for sparklines
+				dev.History = append(dev.History, *msg.Data)
+				if len(dev.History) > 20 {
+					dev.History = dev.History[len(dev.History)-20:]
+				}
 				dev.PreviousData = dev.Data
 				dev.Data = msg.Data
 				dev.LastError = nil
 				dev.LastUpdate = time.Now()
+				dev.LastSuccessfulPoll = time.Now()
+				dev.Status = StatusOnline
 			}
 		}
 		m.updateSpinnerState()
@@ -641,8 +653,9 @@ func (m model) renderDeviceGrid(height int) string {
 }
 
 func (m model) renderDeviceContent(dev *Device, width int) string {
-	// Device name header
-	nameLabel := fmt.Sprintf("%s (%s)", dev.Name, dev.IP)
+	// Device name header with status indicator
+	statusDot := m.renderStatusIndicator(dev.Status)
+	nameLabel := fmt.Sprintf("%s %s (%s)", statusDot, dev.Name, dev.IP)
 	if lipgloss.Width(nameLabel) > width {
 		nameLabel = nameLabel[:width]
 	}
@@ -821,6 +834,22 @@ func clamp01(v float64) float64 {
 		return 1
 	}
 	return v
+}
+
+// renderStatusIndicator returns a colored dot indicating connection status.
+func (m model) renderStatusIndicator(status ConnectionStatus) string {
+	switch status {
+	case StatusOnline:
+		return lipgloss.NewStyle().Foreground(m.theme.ColorGood).Render("●")
+	case StatusOffline:
+		return lipgloss.NewStyle().Foreground(m.theme.ColorPoor).Render("●")
+	case StatusError:
+		return lipgloss.NewStyle().Foreground(m.theme.ColorFair).Render("●")
+	case StatusConnecting:
+		return lipgloss.NewStyle().Foreground(m.theme.FgMuted).Render("○")
+	default:
+		return lipgloss.NewStyle().Foreground(m.theme.FgMuted).Render("○")
+	}
 }
 
 func (m model) overlayPrompt(grid string, gridHeight int) string {
