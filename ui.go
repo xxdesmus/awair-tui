@@ -75,14 +75,15 @@ type model struct {
 	noDiscovery  bool
 	discoveryCtx func() // cancel function for discovery
 
-	spinner       spinner.Model
-	showSpinner   bool                       // true when any device is polling
-	changedFields map[string]map[string]bool // deviceIP -> sensorKey -> changed
+	spinner        spinner.Model
+	showSpinner    bool                       // true when any device is polling
+	changedFields  map[string]map[string]bool // deviceIP -> sensorKey -> changed
+	showSparklines bool                       // true to show sparkline trends
 
 	selectedDevice string // IP of device in expanded view, empty for grid view
 }
 
-func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenheit bool, themeName string) model {
+func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenheit bool, themeName string, sparklines bool) model {
 	ti := textinput.New()
 	ti.CharLimit = 64
 	ti.Width = 40
@@ -94,17 +95,18 @@ func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenhe
 	s.Style = lipgloss.NewStyle().Foreground(theme.FgSecondary)
 
 	m := model{
-		devices:       make(map[string]*Device),
-		deviceOrder:   []string{},
-		config:        cfg,
-		logs:          []logEntry{},
-		fahrenheit:    fahrenheit,
-		theme:         GetTheme(themeName),
-		promptInput:   ti,
-		pollInterval:  time.Duration(interval) * time.Second,
-		noDiscovery:   noDiscovery,
-		spinner:       s,
-		changedFields: make(map[string]map[string]bool),
+		devices:        make(map[string]*Device),
+		deviceOrder:    []string{},
+		config:         cfg,
+		logs:           []logEntry{},
+		fahrenheit:     fahrenheit,
+		theme:          GetTheme(themeName),
+		promptInput:    ti,
+		pollInterval:   time.Duration(interval) * time.Second,
+		noDiscovery:    noDiscovery,
+		spinner:        s,
+		changedFields:  make(map[string]map[string]bool),
+		showSparklines: sparklines,
 	}
 
 	// Load config-defined devices
@@ -570,6 +572,9 @@ func (m model) renderStatusBar() string {
 	if m.showSpinner {
 		content = m.spinner.View() + " Polling...  " + content
 	}
+	if m.showSparklines {
+		content = content + "  [Sparklines ON]"
+	}
 	return lipgloss.NewStyle().
 		Width(m.width).
 		Background(m.theme.BgTertiary).
@@ -720,6 +725,9 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 
 	d := dev.Data
 	barWidth := width - 30
+	if m.showSparklines {
+		barWidth = width - 38 // Leave room for sparkline
+	}
 	if barWidth < 0 {
 		barWidth = 0
 	}
@@ -794,9 +802,9 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 		}
 		labelStyle := lipgloss.NewStyle().Bold(true)
 
-		// Build sparkline from history
+		// Build sparkline from history (only if enabled)
 		sparkline := ""
-		if len(dev.History) > 1 {
+		if m.showSparklines && len(dev.History) > 1 {
 			historyValues := make([]float64, 0, len(dev.History))
 			for _, h := range dev.History {
 				switch s.Key {

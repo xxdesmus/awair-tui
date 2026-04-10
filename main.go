@@ -14,6 +14,7 @@ func main() {
 	interval := flag.Int("interval", 10, "Polling interval in seconds")
 	fahrenheit := flag.Bool("fahrenheit", false, "Display temperatures in Fahrenheit")
 	theme := flag.String("theme", "nord", "Color theme (nord, catppuccin, tokyonight, gruvbox, dracula, classic)")
+	sparklines := flag.Bool("sparklines", false, "Show sparkline trend graphs")
 
 	// Short flags
 	flag.IntVar(interval, "i", 10, "Polling interval in seconds (shorthand)")
@@ -38,6 +39,7 @@ Examples:
   awair-tui -i 5 192.168.1.100        Poll every 5s
   awair-tui --fahrenheit               Show temps in °F
   awair-tui --theme tokyonight         Use Tokyo Night theme
+  awair-tui --sparklines               Show trend sparklines
 `)
 	}
 
@@ -67,7 +69,7 @@ Examples:
 		ctx, cancel = context.WithCancel(context.Background())
 	}
 
-	m := initialModel(cfg, ips, *interval, *noDiscovery, *fahrenheit, *theme)
+	m := initialModel(cfg, ips, *interval, *noDiscovery, *fahrenheit, *theme, *sparklines)
 	if cancel != nil {
 		m.discoveryCtx = cancel
 	}
