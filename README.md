@@ -66,6 +66,9 @@ go build -o awair-tui .
 
 # List all available themes
 ./awair-tui --theme help
+
+# Show trend sparklines (off by default)
+./awair-tui --sparklines
 ```
 
 ## Color Themes
@@ -103,7 +106,7 @@ Each device card shows a colored status dot:
 - **○ Gray** — Connecting (initial connection)
 
 ### Sparkline Trends
-Mini ASCII charts (▃▄▆▇█) display next to each sensor, showing the trend from the last 20 readings. This helps visualize whether air quality is improving or degrading over time.
+When enabled with `--sparklines`, mini ASCII charts (▃▄▆▇█) display next to each sensor, showing the trend from the last 20 readings. This helps visualize whether air quality is improving or degrading over time.
 
 ### Detailed Device View
 Press `Enter` to expand any device and see:

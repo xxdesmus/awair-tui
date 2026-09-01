@@ -1,6 +1,10 @@
 package main
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"sort"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Theme defines a complete color scheme for the application.
 type Theme struct {
@@ -54,6 +58,7 @@ func ListThemes() []string {
 	for name := range themes {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 

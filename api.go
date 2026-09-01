@@ -66,6 +66,7 @@ type Device struct {
 	LastSuccessfulPoll time.Time
 	Status             ConnectionStatus
 	IsConnecting       bool         // For spinner state
+	PollInFlight       bool         // Prevent overlapping requests for this device
 	History            []SensorData // Last 20 readings for sparklines
 }
 

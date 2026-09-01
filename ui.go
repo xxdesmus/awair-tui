@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sort"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // ratingColor returns the appropriate color for a rating string using the theme.
@@ -77,6 +79,7 @@ type model struct {
 
 	spinner        spinner.Model
 	showSpinner    bool                       // true when any device is polling
+	discovering    bool                       // true while a manual mDNS search is running
 	changedFields  map[string]map[string]bool // deviceIP -> sensorKey -> changed
 	showSparklines bool                       // true to show sparkline trends
 
@@ -112,7 +115,13 @@ func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenhe
 	// Load config-defined devices
 	if len(cfg.Devices) > 0 {
 		m.addLog(fmt.Sprintf("Loaded %d device name(s) from config", len(cfg.Devices)))
-		for ip, name := range cfg.Devices {
+		configIPs := make([]string, 0, len(cfg.Devices))
+		for ip := range cfg.Devices {
+			configIPs = append(configIPs, ip)
+		}
+		sort.Strings(configIPs)
+		for _, ip := range configIPs {
+			name := cfg.Devices[ip]
 			dev := m.addDevice(ip, name)
 			m.addLog(fmt.Sprintf("Added config device: %s (%s)", dev.Name, ip))
 		}
@@ -124,6 +133,12 @@ func initialModel(cfg *Config, ips []string, interval int, noDiscovery, fahrenhe
 			dev := m.addDevice(ip, "")
 			m.addLog(fmt.Sprintf("Added device: %s", dev.Name))
 		}
+	}
+
+	// Init dispatches an immediate poll for every starting device.
+	for _, dev := range m.devices {
+		dev.IsConnecting = true
+		dev.PollInFlight = true
 	}
 
 	return m
@@ -258,8 +273,8 @@ func pollCmd(ip string) tea.Cmd {
 	}
 }
 
-// discoverCmd runs a one-shot mDNS discovery and sends results as messages.
-func discoverCmd() tea.Cmd {
+// discoverOnceCmd runs a bounded mDNS discovery and sends results as messages.
+func discoverOnceCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -272,6 +287,18 @@ func discoverCmd() tea.Cmd {
 		}
 		return discoveryBatchMsg(found)
 	}
+}
+
+// startPoll marks a device as polling and returns its command. A device has at
+// most one request in flight, preventing stale responses and request buildup.
+func (m *model) startPoll(ip string) tea.Cmd {
+	dev, ok := m.devices[ip]
+	if !ok || dev.PollInFlight {
+		return nil
+	}
+	dev.PollInFlight = true
+	dev.IsConnecting = true
+	return pollCmd(ip)
 }
 
 // discoveryBatchMsg carries all devices found in a single discovery pass.
@@ -307,10 +334,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Poll all devices
 		var cmds []tea.Cmd
 		for _, ip := range m.deviceOrder {
-			if dev, ok := m.devices[ip]; ok {
-				dev.IsConnecting = true
+			if cmd := m.startPoll(ip); cmd != nil {
+				cmds = append(cmds, cmd)
 			}
-			cmds = append(cmds, pollCmd(ip))
 		}
 		cmds = append(cmds, tickCmd(m.pollInterval))
 		m.updateSpinnerState()
@@ -319,6 +345,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pollResultMsg:
 		if dev, ok := m.devices[msg.IP]; ok {
 			dev.IsConnecting = false
+			dev.PollInFlight = false
 			if msg.Err != nil {
 				dev.LastError = msg.Err
 				dev.Status = StatusError
@@ -365,22 +392,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if _, exists := m.devices[msg.IP]; !exists {
 			dev := m.addDevice(msg.IP, msg.Name)
 			m.addLog(fmt.Sprintf("Discovered: %s at %s", dev.Name, msg.IP))
-			return m, tea.Batch(pollCmd(msg.IP), configCmd(msg.IP))
+			poll := m.startPoll(msg.IP)
+			m.updateSpinnerState()
+			return m, tea.Batch(poll, configCmd(msg.IP))
 		}
 		return m, nil
 
 	case discoveryBatchMsg:
+		m.discovering = false
 		var cmds []tea.Cmd
 		for _, d := range msg {
 			if _, exists := m.devices[d.IP]; !exists {
 				dev := m.addDevice(d.IP, d.Name)
 				m.addLog(fmt.Sprintf("Discovered: %s at %s", dev.Name, d.IP))
-				cmds = append(cmds, pollCmd(d.IP), configCmd(d.IP))
+				cmds = append(cmds, m.startPoll(d.IP), configCmd(d.IP))
 			}
 		}
 		if len(cmds) == 0 {
 			m.addLog("No new devices found")
 		}
+		m.updateSpinnerState()
 		return m, tea.Batch(cmds...)
 	}
 
@@ -418,8 +449,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.addLog("Refreshing...")
 		var cmds []tea.Cmd
 		for _, ip := range m.deviceOrder {
-
-			cmds = append(cmds, pollCmd(ip))
+			if cmd := m.startPoll(ip); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 		return m, tea.Batch(cmds...)
 
@@ -436,8 +468,13 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.addLog("Discovery disabled (--no-discovery)")
 			return m, nil
 		}
-		m.addLog("Restarting mDNS discovery...")
-		return m, discoverCmd()
+		if m.discovering {
+			m.addLog("mDNS search already in progress")
+			return m, nil
+		}
+		m.discovering = true
+		m.addLog("Searching mDNS for devices...")
+		return m, discoverOnceCmd()
 
 	case "enter":
 		// Toggle expanded view for first device if any exist
@@ -492,7 +529,9 @@ func (m model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.promptStep = ""
 			m.pendingIP = ""
 			m.promptInput.Blur()
-			return m, tea.Batch(pollCmd(ip), configCmd(ip))
+			poll := m.startPoll(ip)
+			m.updateSpinnerState()
+			return m, tea.Batch(poll, configCmd(ip))
 		}
 		return m, nil
 	}
@@ -706,7 +745,7 @@ func (m model) renderDeviceContent(dev *Device, width int) string {
 	statusDot := m.renderStatusIndicator(dev.Status)
 	nameLabel := fmt.Sprintf("%s %s (%s)", statusDot, dev.Name, dev.IP)
 	if lipgloss.Width(nameLabel) > width {
-		nameLabel = nameLabel[:width]
+		nameLabel = ansi.Truncate(nameLabel, width, "")
 	}
 	header := lipgloss.NewStyle().Bold(true).Foreground(m.theme.AccentCyan).Render(nameLabel)
 

@@ -46,6 +46,11 @@ Examples:
 	flag.Parse()
 	ips := flag.Args()
 
+	if *interval <= 0 {
+		fmt.Fprintln(os.Stderr, "Polling interval must be greater than zero")
+		os.Exit(2)
+	}
+
 	// Handle theme help request
 	if *theme == "help" {
 		fmt.Println("Available themes:")

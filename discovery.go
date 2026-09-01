@@ -27,10 +27,8 @@ func StartDiscovery(ctx context.Context) <-chan DiscoveredDevice {
 		defer close(ch)
 
 		// Suppress hashicorp/mdns log noise (IPv6 bind errors, client close info)
-		// Save and restore the original log output to avoid clobbering it globally.
-		origLogOut := log.Writer()
-		log.SetOutput(io.Discard)
-		defer log.SetOutput(origLogOut)
+		// without changing the process-wide default logger.
+		logger := log.New(io.Discard, "", 0)
 
 		for {
 			entries := make(chan *mdns.ServiceEntry, 16)
@@ -68,6 +66,7 @@ func StartDiscovery(ctx context.Context) <-chan DiscoveredDevice {
 			params := mdns.DefaultParams("_http._tcp")
 			params.Entries = entries
 			params.Timeout = 5 * time.Second
+			params.Logger = logger
 			_ = mdns.Query(params)
 			close(entries)
 
